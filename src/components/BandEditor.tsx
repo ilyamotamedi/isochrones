@@ -1,152 +1,112 @@
 import { bandColorAt } from '../config';
-import { MAX_BANDS, MAX_MINUTES, MIN_MINUTES, parseBandInputs } from '../state/bandEditor';
+import { MAX_MINUTES, MIN_MINUTES, type BandState } from '../state/bandEditor';
 
 interface BandEditorProps {
-  /** Draft minute values, as raw strings. */
-  inputs: string[];
-  /** Row indices whose band is hidden on the map. */
-  hidden: ReadonlySet<number>;
+  bands: BandState;
+  /** Per-row on/off, same length as the rows. */
+  enabled: boolean[];
   onChangeInput: (index: number, value: string) => void;
   onToggle: (index: number) => void;
-  onRemove: (index: number) => void;
-  onAdd: () => void;
-  /**
-   * Whether there is a result on the map to filter at all.
-   */
+  /** Whether there is a result on the map to filter at all. */
   canToggle: boolean;
   /**
-   * How many bands are actually drawn right now.
-   *
-   * Rows past this have no band behind them yet — they are pending values the
-   * user has added but not submitted — so their checkbox has nothing to act on.
+   * How many rows are both usable and on. The last one cannot be switched off.
    */
-  renderedCount: number;
-  /** Validation message, shown beneath the rows. */
-  error: string | null;
+  enabledCount: number;
 }
 
 /**
- * The travel-time editor, which doubles as the map legend.
+ * The four travel-time rows, which double as the map legend.
  *
- * One list serves both jobs — editing the values and toggling their visibility
- * — because a separate read-only legend would restate the same four numbers
- * directly below the controls that set them.
+ * Fixed slots rather than an editable list. Add and remove buttons made the
+ * common case — adjusting a number — carry the weight of a list-management UI,
+ * and a stable row is also what lets on/off be tracked by position.
  *
- * Swatches are coloured by each value's *rank*, not its row position, so a row
- * dragged out of order previews the colour it will actually be drawn in. While
- * the input is invalid there is no meaningful rank, so we fall back to row
- * order rather than blanking the swatches.
+ * Swatches sample the same near-to-far ramp the map paints, so the legend reads
+ * as a key rather than as decoration.
  */
 export function BandEditor({
-  inputs,
-  hidden,
+  bands,
+  enabled,
   onChangeInput,
   onToggle,
-  onRemove,
-  onAdd,
   canToggle,
-  renderedCount,
-  error,
+  enabledCount,
 }: BandEditorProps) {
-  const parsed = parseBandInputs(inputs);
-  const errorIndex = parsed.ok ? undefined : parsed.index;
-
-  // order[newIndex] = oldIndex, so invert it to get each row's rank.
-  const rankByRow = inputs.map((_, index) => index);
-  if (parsed.ok) {
-    parsed.order.forEach((oldIndex, newIndex) => {
-      rankByRow[oldIndex] = newIndex;
-    });
-  }
-
-  const span = Math.max(1, inputs.length - 1);
-
-  /*
-   * Counted over the *rendered* bands, not the draft rows. The guard exists to
-   * stop the map going blank, so it has to reason about what is on the map.
-   */
-  let visibleRendered = 0;
-  for (let i = 0; i < renderedCount; i += 1) {
-    if (!hidden.has(i)) visibleRendered += 1;
-  }
-
   return (
     <fieldset className="bands">
       <legend className="bands__legend">Travel time</legend>
 
-      {inputs.map((value, index) => {
-        const isVisible = !hidden.has(index);
-        const rank = rankByRow[index] ?? index;
-        const invalid = index === errorIndex;
-        const toggleDisabled =
-          !canToggle ||
-          // Nothing drawn at this position yet.
-          index >= renderedCount ||
-          // Blocking the last visible band prevents an empty map, which reads
-          // as a bug rather than as a deliberately cleared view.
-          (isVisible && visibleRendered === 1);
+      {bands.rows.map((row, index) => {
+        const isOn = enabled[index] === true;
+        const isLastOn = isOn && row.minutes !== null && enabledCount === 1;
+        const errorId = row.error ? `band-error-${index}` : undefined;
 
         return (
           // Row identity is positional: the value is being edited, so it cannot
           // be the key without remounting the input on every keystroke.
           <div key={index} className="bands__row">
-            <input
-              type="checkbox"
-              className="bands__check"
-              checked={isVisible}
-              disabled={toggleDisabled}
-              onChange={() => onToggle(index)}
-              aria-label={`Show the ${value || '—'} minute band`}
-            />
+            <label className="switch">
+              <input
+                type="checkbox"
+                role="switch"
+                className="switch__input"
+                checked={isOn}
+                /*
+                 * Only two reasons to lock a switch: there is nothing drawn to
+                 * filter, or this is the last band standing and turning it off
+                 * would leave an empty map that reads as a bug.
+                 */
+                disabled={!canToggle || isLastOn}
+                onChange={() => onToggle(index)}
+              />
+              <span className="switch__track" aria-hidden="true">
+                <span className="switch__thumb" />
+              </span>
+              <span className="sr-only">
+                Show the {row.raw || 'empty'} minute band
+              </span>
+            </label>
 
             <span
               className="bands__swatch"
               aria-hidden="true"
               style={{
-                backgroundColor: isVisible ? bandColorAt(rank / span) : '#d6d9de',
+                backgroundColor:
+                  isOn && row.minutes !== null
+                    ? bandColorAt(bands.rampPosition[index] ?? 0)
+                    : 'var(--swatch-off)',
               }}
             />
 
             <input
               type="number"
-              className={invalid ? 'bands__input bands__input--invalid' : 'bands__input'}
-              value={value}
+              className={row.error ? 'bands__input bands__input--invalid' : 'bands__input'}
+              value={row.raw}
               min={MIN_MINUTES}
               max={MAX_MINUTES}
               step={1}
               inputMode="numeric"
               onChange={(event) => onChangeInput(index, event.target.value)}
               aria-label={`Travel time ${index + 1} in minutes`}
-              aria-invalid={invalid || undefined}
-              aria-describedby={invalid ? 'bands-error' : undefined}
+              aria-invalid={row.error ? true : undefined}
+              aria-describedby={errorId}
             />
             <span className="bands__unit">min</span>
 
-            <button
-              type="button"
-              className="bands__remove"
-              // One band is the floor; removing it would leave nothing to draw.
-              disabled={inputs.length === 1}
-              onClick={() => onRemove(index)}
-              aria-label={`Remove the ${value || '—'} minute band`}
-            >
-              ×
-            </button>
+            {/*
+              Per row, not one shared line. Four fixed rows can each be wrong
+              in a different way, and a single message cannot say which box to
+              look at.
+            */}
+            {row.error && (
+              <span className="bands__error" id={errorId} role="alert">
+                {row.error}
+              </span>
+            )}
           </div>
         );
       })}
-
-      {error && (
-        <p className="bands__error" id="bands-error" role="alert">
-          {error}
-        </p>
-      )}
-
-      {inputs.length < MAX_BANDS && (
-        <button type="button" className="bands__add" onClick={onAdd}>
-          + Add a time
-        </button>
-      )}
     </fieldset>
   );
 }

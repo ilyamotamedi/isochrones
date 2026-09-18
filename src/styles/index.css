@@ -8,6 +8,9 @@
   --accent-contrast: #ffffff;
   --danger: #c5221f;
   --danger-bg: #fce8e6;
+  /* Swatch for a row that is switched off, and the switch's own off track. */
+  --swatch-off: #d6d9de;
+  --switch-off: #c4c7cc;
   --radius: 10px;
   --panel-width: 344px;
 
@@ -309,20 +312,86 @@ body {
 
 .bands__row {
   display: flex;
+  /*
+   * Wrapping exists solely for the error message, which takes a full-width row
+   * of its own below. Without it a long message competes for space with the
+   * number field and knocks the four swatches out of vertical alignment.
+   */
+  flex-wrap: wrap;
   align-items: center;
   gap: 9px;
   padding: 3px 0;
   font-size: 13px;
 }
 
-.bands__check {
-  accent-color: var(--accent);
-  margin: 0;
+/* --- On/off switch --- */
+
+/*
+ * A real checkbox with role="switch", made invisible and painted over.
+ *
+ * The alternative — a button with aria-checked — means reimplementing the
+ * keyboard behaviour, the focus order and the form semantics that the native
+ * input already has correct.
+ */
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
   flex: none;
+  cursor: pointer;
 }
 
-.bands__check:disabled {
+.switch__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.switch__track {
+  display: block;
+  position: relative;
+  width: 30px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--switch-off);
+  transition: background-color 120ms ease;
+}
+
+.switch__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  transition: transform 120ms ease;
+}
+
+.switch__input:checked + .switch__track {
+  background: var(--accent);
+}
+
+.switch__input:checked + .switch__track .switch__thumb {
+  transform: translateX(12px);
+}
+
+.switch__input:disabled + .switch__track {
+  opacity: 0.4;
+}
+
+.switch:has(.switch__input:disabled) {
   cursor: not-allowed;
+}
+
+.switch__input:focus-visible + .switch__track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .bands__swatch {
@@ -363,53 +432,14 @@ body {
 
 .bands__unit {
   color: var(--text-muted);
-  /* Pushes the remove button to the far edge, away from the number field. */
-  margin-right: auto;
-}
-
-.bands__remove {
-  flex: none;
-  width: 22px;
-  height: 22px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  font-size: 15px;
-  line-height: 1;
-  color: var(--text-muted);
-  background: transparent;
-  border: 0;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.bands__remove:hover:not(:disabled) {
-  background: #f1f3f4;
-  color: var(--danger);
-}
-
-.bands__remove:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
-
-.bands__add {
-  margin-top: 6px;
-  padding: 4px 0;
-  font: inherit;
-  font-size: 13px;
-  color: var(--accent);
-  background: none;
-  border: 0;
-  cursor: pointer;
-}
-
-.bands__add:hover {
-  text-decoration: underline;
 }
 
 .bands__error {
-  margin: 8px 0 0;
+  flex-basis: 100%;
+  margin: 0 0 2px;
+  /* Indented past the switch and swatch, so it sits under the field it is
+     talking about rather than under the toggle. */
+  padding-left: 70px;
   font-size: 12px;
   line-height: 1.4;
   color: var(--danger);
@@ -438,32 +468,9 @@ body {
 
 /* --- Share --- */
 
-.btn--primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-contrast);
-}
-
-.btn--primary:hover:not(:disabled) {
-  background: #1765cc;
-}
-
 /*
- * A dimmed blue still reads as a live button. Going grey makes "nothing to
- * submit" unambiguous, which matters when the share button sits right below.
+ * Shown when every time field is unusable, so the map is holding an older set.
  */
-.btn--primary:disabled {
-  background: #e8eaed;
-  border-color: #e8eaed;
-  color: var(--text-muted);
-  opacity: 1;
-}
-
-.btn--block {
-  width: 100%;
-  justify-content: center;
-}
-
 .panel__pending {
   margin: 8px 0 0;
   font-size: 12px;
@@ -504,13 +511,10 @@ mapbox-search-listbox {
 
 /*
  * Every interactive control needs a visible focus ring, not just the ones that
- * happen to be buttons. The checkbox and the small icon controls are the easy
- * ones to forget, and they are exactly the ones a keyboard user lands on while
- * working through the band list.
+ * happen to be buttons. The switch is the easy one to forget — its real input
+ * is invisible, so the ring has to be drawn on the track standing in for it,
+ * and that rule lives with the switch itself.
  */
-.bands__check:focus-visible,
-.bands__remove:focus-visible,
-.bands__add:focus-visible,
 .share__fallback input:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -562,15 +566,24 @@ mapbox-search-listbox {
     font-size: 16px;
   }
 
-  /* Comfortable touch targets for the two smallest controls. */
-  .bands__remove {
-    width: 32px;
-    height: 32px;
+  /*
+   * A bigger switch for touch. The whole label is the hit area, and the
+   * transparent input stretches to fill it, so growing the track grows the
+   * target with it.
+   */
+  .switch__track {
+    width: 38px;
+    height: 22px;
+    border-radius: 11px;
   }
 
-  .bands__check {
+  .switch__thumb {
     width: 18px;
     height: 18px;
+  }
+
+  .switch__input:checked + .switch__track .switch__thumb {
+    transform: translateX(16px);
   }
 
   .panel__collapse {

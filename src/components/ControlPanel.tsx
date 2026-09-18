@@ -1,14 +1,20 @@
 import type { Map as MapboxMap } from 'mapbox-gl';
-import type { FormEvent, RefObject } from 'react';
+import type { RefObject } from 'react';
 import { LocationSearch } from './LocationSearch';
 import { ProfileSelector } from './ProfileSelector';
 import { BandEditor } from './BandEditor';
 import { StatusBanner } from './StatusBanner';
 import { ShareButton } from './ShareButton';
+import type { BandState } from '../state/bandEditor';
 import type { Origin, Profile, QueryStatus } from '../types';
 
 interface ControlPanelProps {
   panelRef: RefObject<HTMLDivElement | null>;
+  /**
+   * The lowest element that stays on screen when the mobile sheet collapses.
+   * The camera frames against this, not the full expanded sheet.
+   */
+  stickyRef: RefObject<HTMLDivElement | null>;
   collapsed: boolean;
   onToggleCollapsed: () => void;
   map: MapboxMap | null;
@@ -21,24 +27,22 @@ interface ControlPanelProps {
   locationError: string | null;
   profile: Profile;
   onProfileChange: (profile: Profile) => void;
-  bandInputs: string[];
-  hidden: ReadonlySet<number>;
+  bands: BandState;
+  enabled: boolean[];
   onBandInput: (index: number, value: string) => void;
   onToggleBand: (index: number) => void;
-  onAddBand: () => void;
-  onRemoveBand: (index: number) => void;
-  bandError: string | null;
   canToggle: boolean;
-  renderedCount: number;
-  dirty: boolean;
-  hasSubmitted: boolean;
-  canSubmit: boolean;
-  onSubmit: () => void;
+  enabledCount: number;
+  /** No row is usable, so the map is showing an older set of times. */
+  stale: boolean;
+  /** Something has been requested, so there is a link worth sharing. */
+  hasResult: boolean;
   status: QueryStatus;
 }
 
 export function ControlPanel({
   panelRef,
+  stickyRef,
   collapsed,
   onToggleCollapsed,
   map,
@@ -51,28 +55,16 @@ export function ControlPanel({
   locationError,
   profile,
   onProfileChange,
-  bandInputs,
-  hidden,
+  bands,
+  enabled,
   onBandInput,
   onToggleBand,
-  onAddBand,
-  onRemoveBand,
-  bandError,
   canToggle,
-  renderedCount,
-  dirty,
-  hasSubmitted,
-  canSubmit,
-  onSubmit,
+  enabledCount,
+  stale,
+  hasResult,
   status,
 }: ControlPanelProps) {
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    onSubmit();
-  }
-
-  const submitLabel = hasSubmitted ? 'Update map' : 'Show isochrone';
-
   return (
     <div ref={panelRef} className={collapsed ? 'panel panel--collapsed' : 'panel'}>
       <div className="panel__header">
@@ -108,15 +100,13 @@ export function ControlPanel({
       </div>
 
       {/*
-        The search field stays outside the form as well as outside
-        `.panel__body`. Its suggestions dropdown must never sit inside a
-        scrollable ancestor or it gets clipped, and keeping it out of the form
-        stops Enter-to-accept-a-suggestion from also submitting the query.
+        The search field stays outside `.panel__body`: its suggestions dropdown
+        must never sit inside a scrollable ancestor or it gets clipped.
 
-        It also stays visible when collapsed: a collapsed panel that cannot
+        It also stays visible when collapsed — a collapsed panel that cannot
         start a new search would just be a title bar.
       */}
-      <div className="panel__field">
+      <div className="panel__field" ref={stickyRef}>
         <LocationSearch
           map={map}
           value={searchValue}
@@ -125,7 +115,12 @@ export function ControlPanel({
         />
       </div>
 
-      <form className="panel__body" id="panel-body" onSubmit={handleSubmit}>
+      {/*
+        Not a <form>. There is nothing to submit — every control applies itself
+        — and a form with no submit button turns Enter in a number field into a
+        silent no-op at best and a page reload at worst.
+      */}
+      <div className="panel__body" id="panel-body">
         <div className="panel__row">
           <button
             type="button"
@@ -157,43 +152,29 @@ export function ControlPanel({
 
         <div className="panel__section">
           <BandEditor
-            inputs={bandInputs}
-            hidden={hidden}
+            bands={bands}
+            enabled={enabled}
             onChangeInput={onBandInput}
             onToggle={onToggleBand}
-            onAdd={onAddBand}
-            onRemove={onRemoveBand}
             canToggle={canToggle}
-            renderedCount={renderedCount}
-            error={bandError}
+            enabledCount={enabledCount}
           />
-        </div>
 
-        <div className="panel__section">
-          <button type="submit" className="btn btn--primary btn--block" disabled={!canSubmit}>
-            {status.kind === 'loading' ? 'Loading…' : submitLabel}
-          </button>
-
-          {/*
-            Only shown once something is on the map. Before that the button
-            label already says what to do, and a nag under a fresh form is
-            noise rather than guidance.
-          */}
-          {dirty && hasSubmitted && (
+          {stale && (
             <p className="panel__pending" role="status">
-              The map is showing your previous settings.
+              Showing your last valid times.
             </p>
           )}
         </div>
 
         <StatusBanner status={status} hasOrigin={origin !== null} />
 
-        {hasSubmitted && (
+        {hasResult && (
           <div className="panel__section">
             <ShareButton disabled={status.kind !== 'success'} />
           </div>
         )}
-      </form>
+      </div>
     </div>
   );
 }

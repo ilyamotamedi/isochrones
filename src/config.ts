@@ -80,6 +80,15 @@ export const INITIAL_VIEW = {
 /** Viewport width below which the panel becomes a top sheet. */
 export const MOBILE_BREAKPOINT = 640;
 
+/**
+ * How long to wait after the last keystroke before asking for new contours.
+ *
+ * The map refreshes as you type, so this is the only thing standing between a
+ * two-digit entry and two requests. 300ms fires mid-number often enough to be
+ * annoying; past about 800ms the map stops feeling connected to the input.
+ */
+export const INPUT_DEBOUNCE_MS = 500;
+
 /** Breathing room between the panel edge and the fitted result. */
 const FIT_GAP = 16;
 /** Clear of the zoom controls, scale bar and attribution. */
@@ -96,14 +105,29 @@ export interface FitPadding {
  * Padding that keeps a fitted result clear of the floating panel.
  *
  * Measured from the live panel rather than hardcoded. The panel's height
- * depends on how many bands are listed, whether an error is showing and how
- * long the address is, and on a phone the difference between the guess and the
- * truth was most of the screen.
+ * depends on whether an error is showing and how long the address is, and on a
+ * phone the difference between the guess and the truth was most of the screen.
  *
  * Padding is clamped: mapbox-gl throws if the padding exceeds the canvas, and
  * a collapsed-to-nothing viewport is a worse failure than an imperfect fit.
  */
-export function fitPaddingFor(panel: DOMRect | null, width: number, height: number): FitPadding {
+export function fitPaddingFor(
+  panel: DOMRect | null,
+  /**
+   * The slice of the panel that stays on screen when the mobile sheet is
+   * collapsed — its header and the search field.
+   *
+   * The mobile fit is measured against this rather than the full expanded
+   * sheet. An open sheet covers roughly two thirds of a phone, so fitting below
+   * it would either squeeze the map into a sliver or, once clamped, fail to
+   * clear the sheet anyway. Fitting to the collapsed height instead means the
+   * result is framed correctly the moment the sheet is out of the way — and
+   * while it is open, the user is looking at the form, not the map.
+   */
+  sticky: DOMRect | null,
+  width: number,
+  height: number,
+): FitPadding {
   const maxH = Math.max(0, width * 0.4);
   const maxV = Math.max(0, height * 0.4);
 
@@ -114,8 +138,9 @@ export function fitPaddingFor(panel: DOMRect | null, width: number, height: numb
   // As a top sheet the panel spans the full width, so it can only be avoided
   // vertically; as a floating card it can only be avoided horizontally.
   if (width <= MOBILE_BREAKPOINT) {
+    const avoid = sticky ?? panel;
     return {
-      top: Math.min(maxV, panel.bottom + FIT_GAP),
+      top: Math.min(maxV, avoid.bottom + FIT_GAP),
       bottom: FIT_EDGE,
       left: FIT_EDGE,
       right: FIT_EDGE,

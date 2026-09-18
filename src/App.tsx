@@ -1,13 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { HAS_VALID_TOKEN, MAPBOX_TOKEN, MOBILE_BREAKPOINT, fitPaddingFor } from './config';
+import {
+  HAS_VALID_TOKEN,
+  INPUT_DEBOUNCE_MS,
+  MAPBOX_TOKEN,
+  MOBILE_BREAKPOINT,
+  fitPaddingFor,
+} from './config';
 import { useMapboxMap } from './map/useMapboxMap';
 import { useOriginMarker } from './map/useOriginMarker';
 import { useMapClick } from './map/useMapClick';
 import { useIsochroneRender } from './map/useIsochroneRender';
 import { prefersReducedMotion } from './map/motion';
 import { useIsochroneQuery } from './state/useIsochroneQuery';
+import { useDebouncedValue } from './state/useDebouncedValue';
 import { encodeShareState, parseShareState } from './state/urlState';
-import { parseBandInputs, remapIndices, suggestNextBand } from './state/bandEditor';
+import {
+  enabledValidCount,
+  padToBandCount,
+  parseBands,
+  visibleMinutes,
+} from './state/bandEditor';
 import { formatCoords, reverseGeocode } from './api/geocode';
 import { SetupNotice } from './components/SetupNotice';
 import { ControlPanel } from './components/ControlPanel';
@@ -21,49 +33,75 @@ import { DEFAULT_BANDS, type IsochroneQuery, type Origin, type Profile } from '.
 const initialShare = parseShareState(window.location.search);
 
 const initialProfile: Profile = initialShare?.profile ?? 'walking';
-const initialBands: number[] = initialShare?.minutes ?? DEFAULT_BANDS[initialProfile];
 
 /*
- * A shared link is already a submitted result — the recipient should see the
- * map, not a form waiting to be run.
+ * The editor always has four rows, but a link can carry fewer contours. The
+ * spares are seeded with plausible values and switched off below, so the
+ * recipient sees exactly the sender's map rather than two empty boxes flagged
+ * as errors.
+ */
+const initialValues: number[] = initialShare
+  ? padToBandCount(initialShare.minutes, DEFAULT_BANDS[initialProfile])
+  : DEFAULT_BANDS[initialProfile];
+
+const initialInputs: string[] = initialValues.map(String);
+
+const initialEnabled: boolean[] = initialValues.map((minutes, index) => {
+  if (!initialShare) return true;
+  // Seeded spares sit past the end of the shared set and start off.
+  if (index >= initialShare.minutes.length) return false;
+  return initialShare.visible.includes(minutes);
+});
+
+/*
+ * Derived the same way the running app derives it, so mounting from a link does
+ * not immediately supersede its own first request with an identical one.
  */
 const initialQuery: IsochroneQuery | null = initialShare
-  ? { origin: initialShare.origin, profile: initialProfile, minutes: initialBands }
+  ? {
+      origin: initialShare.origin,
+      profile: initialProfile,
+      minutes: parseBands(initialInputs).requestMinutes,
+    }
   : null;
 
-/*
- * The URL carries visible *values* because that is self-describing to anyone
- * reading the link, but visibility is tracked internally by row position so it
- * can survive the values themselves changing. Convert once, here.
- */
-const initialHidden: Set<number> = new Set(
-  initialShare
-    ? initialBands
-        .map((minutes, index) => (initialShare.visible.includes(minutes) ? -1 : index))
-        .filter((index) => index >= 0)
-    : [],
-);
+/** Would these two produce the same request? */
+function sameQuery(a: IsochroneQuery | null, b: IsochroneQuery | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.origin.lon === b.origin.lon &&
+    a.origin.lat === b.origin.lat &&
+    a.profile === b.profile &&
+    a.minutes.join(',') === b.minutes.join(',')
+  );
+}
 
 export function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const { map, ready } = useMapboxMap(containerRef);
 
   /*
-   * State is split in two.
+   * One source of truth per input, no draft/submitted split. The map follows
+   * the form.
    *
-   * `draft*` is what the form holds; `submitted` is what the map shows. Nothing
-   * is fetched until the user submits, so a location and a mode can be chosen
-   * together and cost one request rather than two.
-   *
-   * Band *visibility* is deliberately not part of this split. It filters data
-   * already on the client, so it applies immediately and never waits for a
-   * submit it does not need.
+   * Only the minute fields are debounced. Choosing a profile or a location is a
+   * discrete act with no half-typed state, so delaying those would add lag for
+   * nothing — whereas typing `45` without a delay asks for a 4-minute contour
+   * on the way to the 45-minute one.
    */
-  const [draftOrigin, setDraftOrigin] = useState<Origin | null>(initialShare?.origin ?? null);
-  const [draftProfile, setDraftProfile] = useState<Profile>(initialProfile);
-  const [draftBands, setDraftBands] = useState<string[]>(() => initialBands.map(String));
+  const [origin, setOrigin] = useState<Origin | null>(initialShare?.origin ?? null);
+  const [profile, setProfile] = useState<Profile>(initialProfile);
+  const bandInput = useDebouncedValue<string[]>(initialInputs, INPUT_DEBOUNCE_MS);
 
-  const [submitted, setSubmitted] = useState<IsochroneQuery | null>(initialQuery);
+  /*
+   * On/off per row, by position.
+   *
+   * Position survives things a value cannot: switching profile rewrites every
+   * number, and editing a field changes one in place. "The fourth band is off"
+   * keeps its meaning through both.
+   */
+  const [enabled, setEnabled] = useState<boolean[]>(initialEnabled);
 
   const [searchValue, setSearchValue] = useState(initialShare?.origin.label ?? '');
   const [locating, setLocating] = useState(false);
@@ -76,16 +114,23 @@ export function App() {
    */
   const [collapsed, setCollapsed] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  /*
+   * The header plus the search field: everything that stays on screen when the
+   * mobile sheet collapses. The camera frames against this rather than the full
+   * sheet — see `fitPaddingFor`.
+   */
+  const stickyRef = useRef<HTMLDivElement>(null);
 
   /*
-   * Measured, not assumed. The panel's height varies with the number of bands,
-   * the length of the address and whether an error is showing, and on a phone
-   * a fixed guess left the result almost entirely behind the sheet.
+   * Measured, not assumed. The panel's height varies with the length of the
+   * address and whether an error is showing, and on a phone a fixed guess left
+   * the result almost entirely behind the sheet.
    */
   const getFitPadding = useCallback(
     () =>
       fitPaddingFor(
         panelRef.current?.getBoundingClientRect() ?? null,
+        stickyRef.current?.getBoundingClientRect() ?? null,
         window.innerWidth,
         window.innerHeight,
       ),
@@ -93,54 +138,55 @@ export function App() {
   );
 
   /*
-   * Hidden bands are stored as row indices, not minute values.
+   * Two parses of the same rows at two different ages.
    *
-   * Position survives things a value cannot: switching profile rewrites every
-   * number, and editing a field changes one in place. Tracking "the third band
-   * is hidden" keeps the user's intent intact through both.
+   * `draftBands` is what the user is looking at, so it drives the boxes, the
+   * per-row errors and the swatches. `queryBands` has settled, so it drives the
+   * request and the map filter — which keeps the drawn bands and the data they
+   * come from in step instead of flickering mid-keystroke.
    */
-  const [hidden, setHidden] = useState<Set<number>>(initialHidden);
+  const draftBands = useMemo(() => parseBands(bandInput.draft), [bandInput.draft]);
+  const queryBands = useMemo(() => parseBands(bandInput.value), [bandInput.value]);
 
-  const parsedBands = useMemo(() => parseBandInputs(draftBands), [draftBands]);
+  const [query, setQuery] = useState<IsochroneQuery | null>(initialQuery);
 
-  const status = useIsochroneQuery(submitted);
+  useEffect(() => {
+    /*
+     * Nothing valid to ask for: hold the previous result rather than clearing.
+     * A map that goes blank while you are mid-edit reads as a crash, not as an
+     * empty selection.
+     */
+    if (!origin || queryBands.requestMinutes.length === 0) return;
+
+    const next: IsochroneQuery = {
+      origin,
+      profile,
+      minutes: queryBands.requestMinutes,
+    };
+
+    setQuery((prev) => (sameQuery(prev, next) ? prev : next));
+  }, [origin, profile, queryBands]);
+
+  const status = useIsochroneQuery(query);
   const data = status.kind === 'success' ? status.data : null;
 
-  const renderedBands = useMemo(() => submitted?.minutes ?? [], [submitted]);
+  /** The band set the loaded geometry actually contains. */
+  const renderedBands = useMemo(() => query?.minutes ?? [], [query]);
 
   const visible = useMemo(() => {
-    const shown = renderedBands.filter((_, index) => !hidden.has(index));
+    const shown = visibleMinutes(queryBands, enabled);
     // Never allow an empty map — that reads as a bug, not as a cleared view.
     return shown.length > 0 ? shown : renderedBands;
-  }, [renderedBands, hidden]);
+  }, [queryBands, enabled, renderedBands]);
 
-  /*
-   * Has the form moved on from what is drawn? Compared against the submitted
-   * query rather than tracked with a flag, so undoing an edit by hand correctly
-   * returns the form to a clean state.
-   */
-  const dirty = useMemo(() => {
-    if (!draftOrigin) return false;
-    if (!submitted) return true;
-    if (!parsedBands.ok) return true;
-
-    return (
-      submitted.origin.lon !== draftOrigin.lon ||
-      submitted.origin.lat !== draftOrigin.lat ||
-      submitted.profile !== draftProfile ||
-      submitted.minutes.join(',') !== parsedBands.values.join(',')
-    );
-  }, [draftOrigin, draftProfile, parsedBands, submitted]);
-
-  useOriginMarker(map, draftOrigin);
+  useOriginMarker(map, origin);
   useIsochroneRender(map, ready, data, visible, renderedBands, getFitPadding);
 
   /*
    * Mirror state into the URL.
    *
-   * This follows the *submitted* query, not the draft. A share link should
-   * always reproduce what is on screen, and mirroring the draft would rewrite
-   * the URL on every keystroke in a minute field.
+   * This follows the query rather than the draft, so a link always reproduces
+   * what is on screen and the URL is not rewritten on every keystroke.
    *
    * replaceState rather than pushState: every band toggle would otherwise add a
    * history entry, so the back button would step through toggles instead of
@@ -148,15 +194,15 @@ export function App() {
    * is the less surprising behaviour for a single-view tool.
    */
   useEffect(() => {
-    if (!submitted) return;
+    if (!query) return;
     const qs = encodeShareState({
-      origin: submitted.origin,
-      profile: submitted.profile,
-      minutes: submitted.minutes,
+      origin: query.origin,
+      profile: query.profile,
+      minutes: query.minutes,
       visible,
     });
     window.history.replaceState(null, '', `${window.location.pathname}?${qs}`);
-  }, [submitted, visible]);
+  }, [query, visible]);
 
   /*
    * Guards against out-of-order reverse-geocode results. Two quick map clicks
@@ -166,6 +212,16 @@ export function App() {
    */
   const labelSeq = useRef(0);
 
+  /*
+   * On a phone the panel covers most of the screen, so choosing a location and
+   * then seeing almost none of the result is the default experience. With the
+   * submit button gone, the decisive moment is picking a starting point —
+   * after that attention moves to the map. Desktop has room for both.
+   */
+  const collapseOnMobile = useCallback(() => {
+    if (window.innerWidth <= MOBILE_BREAKPOINT) setCollapsed(true);
+  }, []);
+
   const setOriginFromCoords = useCallback(
     async (lon: number, lat: number, recenter: boolean) => {
       const seq = ++labelSeq.current;
@@ -173,7 +229,7 @@ export function App() {
 
       // Show the pin immediately; the place name is an upgrade that lands a
       // moment later rather than something to block on.
-      setDraftOrigin({ lon, lat, label: coordLabel });
+      setOrigin({ lon, lat, label: coordLabel });
       setSearchValue(coordLabel);
       setLocationError(null);
 
@@ -188,88 +244,55 @@ export function App() {
       const label = await reverseGeocode(lon, lat, MAPBOX_TOKEN);
       if (seq !== labelSeq.current) return; // superseded
 
-      setDraftOrigin({ lon, lat, label });
+      setOrigin({ lon, lat, label });
       setSearchValue(label);
     },
     [map],
   );
 
-  const handleSelect = useCallback((next: Origin) => {
-    labelSeq.current += 1; // invalidate any in-flight reverse geocode
-    setDraftOrigin(next);
-    setSearchValue(next.label);
-    setLocationError(null);
-  }, []);
+  const handleSelect = useCallback(
+    (next: Origin) => {
+      labelSeq.current += 1; // invalidate any in-flight reverse geocode
+      setOrigin(next);
+      setSearchValue(next.label);
+      setLocationError(null);
+      collapseOnMobile();
+    },
+    [collapseOnMobile],
+  );
 
   const handleToggleBand = useCallback((index: number) => {
-    setHidden((prev) => {
-      const next = new Set(prev);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
-      return next;
-    });
+    setEnabled((prev) => prev.map((on, i) => (i === index ? !on : on)));
   }, []);
 
-  const handleBandInput = useCallback((index: number, value: string) => {
-    setDraftBands((prev) => prev.map((entry, i) => (i === index ? value : entry)));
-  }, []);
+  const handleBandInput = useCallback(
+    (index: number, value: string) => {
+      bandInput.setDebounced(bandInput.draft.map((entry, i) => (i === index ? value : entry)));
+    },
+    [bandInput],
+  );
 
-  const handleAddBand = useCallback(() => {
-    setDraftBands((prev) => {
-      const numeric = prev.map(Number).filter((n) => Number.isFinite(n) && n > 0);
-      return [...prev, String(suggestNextBand(numeric))];
-    });
-  }, []);
-
-  const handleRemoveBand = useCallback((index: number) => {
-    setDraftBands((prev) => prev.filter((_, i) => i !== index));
-    // Rows below the removed one shift up, so their hidden flags must too.
-    setHidden((prev) => {
-      const next = new Set<number>();
-      for (const i of prev) {
-        if (i < index) next.add(i);
-        else if (i > index) next.add(i - 1);
-      }
-      return next;
-    });
-  }, []);
-
-  const handleProfileChange = useCallback((next: Profile) => {
-    setDraftProfile(next);
-    /*
-     * Reset the values to the new profile's defaults: a 60-minute walk is not
-     * a unit most people reason about, and carrying driving numbers into
-     * walking would produce a set nobody chose.
-     *
-     * The hidden set is left alone on purpose. It refers to positions, so
-     * "I don't care about the outermost band" survives the change even though
-     * every number underneath it is different.
-     */
-    setDraftBands(DEFAULT_BANDS[next].map(String));
-  }, []);
-
-  const handleSubmit = useCallback(() => {
-    if (!draftOrigin || !parsedBands.ok) return;
-
-    // Submitting sorts the rows, so any hidden flags have to follow them.
-    setHidden((prev) => remapIndices(prev, parsedBands.order));
-    setDraftBands(parsedBands.values.map(String));
-    setSubmitted({
-      origin: draftOrigin,
-      profile: draftProfile,
-      minutes: parsedBands.values,
-    });
-
-    /*
-     * On a phone the panel covers most of the screen, so submitting and then
-     * seeing almost none of the result is the default experience. Collapsing
-     * at the moment the user's attention moves to the map is the same bargain
-     * Google Maps makes. Desktop has room for both, so it is left alone.
-     */
-    if (window.innerWidth <= MOBILE_BREAKPOINT) {
-      setCollapsed(true);
-    }
-  }, [draftOrigin, draftProfile, parsedBands]);
+  const handleProfileChange = useCallback(
+    (next: Profile) => {
+      setProfile(next);
+      /*
+       * Reset the values to the new profile's defaults: a 60-minute walk is not
+       * a unit most people reason about, and carrying driving numbers into
+       * walking would produce a set nobody chose.
+       *
+       * `setNow`, not `setDebounced`. The profile changes immediately, so if
+       * the values arrived half a second later there would be a window where
+       * the query is the new profile with the old minutes — a wasted request
+       * for a combination nobody asked for.
+       *
+       * The on/off flags are left alone. They refer to positions, so "I don't
+       * care about the outermost band" survives the change even though every
+       * number underneath it is different.
+       */
+      bandInput.setNow(DEFAULT_BANDS[next].map(String));
+    },
+    [bandInput],
+  );
 
   useMapClick(map, (lon, lat) => {
     void setOriginFromCoords(lon, lat, false);
@@ -288,6 +311,7 @@ export function App() {
       (position) => {
         setLocating(false);
         void setOriginFromCoords(position.coords.longitude, position.coords.latitude, true);
+        collapseOnMobile();
       },
       (error) => {
         setLocating(false);
@@ -299,7 +323,7 @@ export function App() {
       },
       { enableHighAccuracy: false, timeout: 10_000, maximumAge: 300_000 },
     );
-  }, [setOriginFromCoords]);
+  }, [collapseOnMobile, setOriginFromCoords]);
 
   if (!HAS_VALID_TOKEN) {
     return <SetupNotice />;
@@ -310,39 +334,46 @@ export function App() {
       <div ref={containerRef} className="map-container" />
       <ControlPanel
         panelRef={panelRef}
+        stickyRef={stickyRef}
         collapsed={collapsed}
         onToggleCollapsed={() => setCollapsed((prev) => !prev)}
         map={map}
-        origin={draftOrigin}
+        origin={origin}
         searchValue={searchValue}
         onSearchChange={setSearchValue}
         onSelect={handleSelect}
         onUseMyLocation={handleUseMyLocation}
         locating={locating}
         locationError={locationError}
-        profile={draftProfile}
+        profile={profile}
         onProfileChange={handleProfileChange}
-        bandInputs={draftBands}
-        hidden={hidden}
+        bands={draftBands}
+        enabled={enabled}
         onBandInput={handleBandInput}
         onToggleBand={handleToggleBand}
-        onAddBand={handleAddBand}
-        onRemoveBand={handleRemoveBand}
-        bandError={parsedBands.ok ? null : parsedBands.error}
         /*
-         * Toggling is gated on there being something drawn, not on the draft
-         * being clean. Visibility is positional, so it keeps meaning while the
-         * values are being edited — and disabling the checkboxes would pull
-         * them out of the keyboard tab order for as long as the form is dirty.
+         * Toggling is gated on there being something drawn to filter, not on
+         * the values being settled. Visibility is positional, so it keeps
+         * meaning while a number is being edited — and disabling the switches
+         * would pull them out of the keyboard tab order every time someone
+         * touches a field.
          */
         canToggle={status.kind === 'success'}
-        renderedCount={renderedBands.length}
-        dirty={dirty}
-        hasSubmitted={submitted !== null}
-        canSubmit={draftOrigin !== null && parsedBands.ok && dirty}
-        onSubmit={handleSubmit}
+        /*
+         * Counted from the draft, so the last-band-standing lock matches what
+         * the user can see in the form rather than a value that has not landed
+         * yet.
+         */
+        enabledCount={enabledValidCount(draftBands, enabled)}
+        /*
+         * Every row unusable. The map is still showing the last good result, so
+         * say so rather than leaving it looking stale for no reason.
+         */
+        stale={draftBands.requestMinutes.length === 0 && query !== null}
+        hasResult={query !== null}
         status={status}
       />
     </div>
   );
 }
+

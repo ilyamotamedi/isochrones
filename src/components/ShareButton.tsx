@@ -40,8 +40,9 @@ export function ShareButton({ disabled }: ShareButtonProps) {
   return (
     <div className="share">
       {/*
-        Secondary, not primary. Submit is the action the form is asking for;
-        two solid blue buttons stacked together would compete.
+        Subtle, not solid. Sharing is an afterthought to looking at the map,
+        and a solid blue button at the bottom of the panel would read as the
+        thing the panel is asking you to do.
       */}
       <button
         type="button"

@@ -1,132 +1,164 @@
 /**
- * Validation for user-edited travel times.
+ * Validation for the four travel-time rows.
  *
  * Kept separate from the component because the rules are the interesting part
  * and they are worth testing without a DOM.
  *
  * Values are held as strings, not numbers. A numeric controlled input fights
- * the user: clearing the field to retype it produces NaN, and any coercion back
- * to a number makes the caret jump. Strings let the field be briefly empty or
- * mid-edit, and we only interpret them when the user submits.
+ * the user: clearing the field to retype it produces NaN, and any coercion
+ * back to a number makes the caret jump.
  */
 
-/** The Isochrone API accepts at most 4 contours in one request. */
-export const MAX_BANDS = 4;
+/** Fixed number of rows. Also the API's maximum contours per request. */
+export const BAND_COUNT = 4;
 export const MIN_MINUTES = 1;
 /** The API's documented ceiling. */
 export const MAX_MINUTES = 60;
 
-export type BandParseResult =
-  | {
-      ok: true;
-      /** Ascending, de-duplicated minutes. */
-      values: number[];
-      /**
-       * `order[newIndex] = oldIndex`. Callers that track per-row state by
-       * position need this to follow rows through the sort.
-       */
-      order: number[];
-    }
-  | {
-      ok: false;
-      error: string;
-      /**
-       * Which row is at fault, when the problem is attributable to one.
-       * Lets the UI mark the offending field instead of leaving the user to
-       * work out which of four numbers the message is about.
-       */
-      index?: number;
-    };
+export interface BandRow {
+  raw: string;
+  /** Parsed value, or null when the row is unusable. */
+  minutes: number | null;
+  /** Short message for this row specifically, or null. */
+  error: string | null;
+}
+
+export interface BandState {
+  rows: BandRow[];
+  /**
+   * What to actually ask the API for: every valid row, de-duplicated and
+   * ascending.
+   *
+   * Deliberately independent of whether a row is switched on. Fetching by
+   * validity rather than by visibility is what keeps a switch free — the data
+   * is already there — while stopping a typo in a switched-off row from
+   * blocking the other three.
+   */
+  requestMinutes: number[];
+  /**
+   * Each row's position along the colour ramp, 0 (nearest) to 1 (furthest).
+   *
+   * Derived from the value's rank, not the row's position, so a row typed out
+   * of order still previews the colour it will be drawn in.
+   */
+  rampPosition: number[];
+}
 
 /**
  * Interprets the raw input strings.
  *
- * Sorts ascending rather than rejecting out-of-order entries. The API requires
- * ascending contours, but refusing to accept `30, 10` would mean scolding the
- * user for typing the same set in a different order. Sorting is applied at
- * submit, which is a single predictable moment rather than a field that
- * rearranges itself as you type.
+ * Every row is judged on its own. One shared error line does not work when
+ * four fixed rows can each be wrong in a different way, and a single message
+ * cannot say which box to look at.
  */
-export function parseBandInputs(inputs: readonly string[]): BandParseResult {
-  if (inputs.length === 0) {
-    return { ok: false, error: 'Add at least one travel time.' };
-  }
+export function parseBands(inputs: readonly string[]): BandState {
+  const rows: BandRow[] = [];
+  /** First row index that claimed each value, for duplicate detection. */
+  const claimed = new Map<number, number>();
 
-  if (inputs.length > MAX_BANDS) {
-    return { ok: false, error: `Mapbox returns at most ${MAX_BANDS} travel times at once.` };
-  }
-
-  const indexed: Array<{ value: number; index: number }> = [];
-
-  for (const [index, raw] of inputs.entries()) {
+  for (const raw of inputs) {
     const trimmed = raw.trim();
 
     if (trimmed === '') {
-      return { ok: false, error: 'Fill in every travel time.', index };
+      rows.push({ raw, minutes: null, error: 'Enter a time' });
+      continue;
     }
 
     const value = Number(trimmed);
 
     if (!Number.isFinite(value) || !Number.isInteger(value)) {
-      return { ok: false, error: 'Travel times must be whole minutes.', index };
+      rows.push({ raw, minutes: null, error: 'Whole minutes only' });
+      continue;
     }
 
     if (value < MIN_MINUTES || value > MAX_MINUTES) {
-      return {
-        ok: false,
-        error: `Travel times must be between ${MIN_MINUTES} and ${MAX_MINUTES} minutes.`,
-        index,
-      };
+      rows.push({ raw, minutes: null, error: `${MIN_MINUTES}–${MAX_MINUTES} minutes` });
+      continue;
     }
 
-    indexed.push({ value, index });
-  }
-
-  const seen = new Map<number, number>();
-  for (const entry of indexed) {
-    const first = seen.get(entry.value);
-    if (first !== undefined) {
-      // Blame the later of the pair: it is the one the user just typed.
-      return { ok: false, error: 'Each travel time must be different.', index: entry.index };
+    if (claimed.has(value)) {
+      // Blame the later of the pair: it is the one just typed.
+      rows.push({ raw, minutes: null, error: 'Already used' });
+      continue;
     }
-    seen.set(entry.value, entry.index);
+
+    claimed.set(value, rows.length);
+    rows.push({ raw, minutes: value, error: null });
   }
 
-  indexed.sort((a, b) => a.value - b.value);
+  const requestMinutes = rows
+    .map((row) => row.minutes)
+    .filter((minutes): minutes is number => minutes !== null)
+    .sort((a, b) => a - b);
 
-  return {
-    ok: true,
-    values: indexed.map((entry) => entry.value),
-    order: indexed.map((entry) => entry.index),
-  };
+  /*
+   * Rank each valid row among the valid ones. Invalid rows have no value to
+   * rank, so they fall back to their position — the swatch still needs a
+   * colour, and a neutral one is less confusing than a blank.
+   */
+  const lastRank = Math.max(1, requestMinutes.length - 1);
+  const lastRow = Math.max(1, rows.length - 1);
+
+  const rampPosition = rows.map((row, index) => {
+    if (row.minutes === null) return index / lastRow;
+    return requestMinutes.indexOf(row.minutes) / lastRank;
+  });
+
+  return { rows, requestMinutes, rampPosition };
 }
 
 /**
- * Follows a set of row indices through a reorder.
+ * The values to draw: valid *and* switched on.
  *
- * Band visibility is tracked by position, so when submitting reorders the rows
- * the hidden set has to move with them or the wrong bands disappear.
+ * Separate from `requestMinutes` on purpose. Switching a row off filters data
+ * that is already loaded, so it costs nothing and needs no request.
  */
-export function remapIndices(hidden: ReadonlySet<number>, order: readonly number[]): Set<number> {
-  const next = new Set<number>();
+export function visibleMinutes(state: BandState, enabled: readonly boolean[]): number[] {
+  return state.rows
+    .filter((row, index) => row.minutes !== null && enabled[index] === true)
+    .map((row) => row.minutes as number)
+    .sort((a, b) => a - b);
+}
 
-  for (const [newIndex, oldIndex] of order.entries()) {
-    if (hidden.has(oldIndex)) next.add(newIndex);
-  }
-
-  return next;
+/** How many rows are both usable and switched on. */
+export function enabledValidCount(state: BandState, enabled: readonly boolean[]): number {
+  return state.rows.filter((row, index) => row.minutes !== null && enabled[index] === true).length;
 }
 
 /**
- * Suggests a value for a newly added row: one step beyond the current largest,
- * using the existing spacing so the new band looks like it belongs to the set.
+ * Fills a short set of values out to the four fixed rows.
+ *
+ * A share link can carry fewer than four contours, but the editor always has
+ * four slots. Leaving the spares blank would greet the recipient with two
+ * validation errors on a link that is perfectly valid, so they are seeded with
+ * plausible values instead — and the caller switches them off, so the map still
+ * shows exactly what the sender saw.
+ *
+ * Seeds are drawn from the profile defaults first, skipping anything already
+ * taken (a duplicate would be an error in its own right), then by stepping past
+ * the largest value.
  */
-export function suggestNextBand(values: readonly number[]): number {
-  const last = values[values.length - 1];
-  if (last === undefined) return 10;
+export function padToBandCount(minutes: readonly number[], fallbacks: readonly number[]): number[] {
+  const out = minutes.slice(0, BAND_COUNT);
+  const taken = new Set(out);
 
-  const previous = values[values.length - 2];
-  const step = previous === undefined ? last : last - previous;
+  for (const candidate of fallbacks) {
+    if (out.length >= BAND_COUNT) break;
+    if (taken.has(candidate)) continue;
+    taken.add(candidate);
+    out.push(candidate);
+  }
 
-  return Math.min(MAX_MINUTES, last + Math.max(1, step));
+  // Still short only if the fallbacks collided. Step up from the largest value
+  // so the spares stay ordered after the real ones.
+  let next = Math.max(MIN_MINUTES, ...out);
+  while (out.length < BAND_COUNT) {
+    next = Math.min(MAX_MINUTES, next + 5);
+    while (taken.has(next) && next < MAX_MINUTES) next += 1;
+    if (taken.has(next)) break; // nothing left in range; leave the row short
+    taken.add(next);
+    out.push(next);
+  }
+
+  return out;
 }
