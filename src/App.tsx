@@ -253,10 +253,22 @@ export function App() {
       setLocationError(null);
 
       if (recenter && map) {
+        /*
+         * `duration` is spread in rather than set to `undefined`, because
+         * mapbox-gl checks `'duration' in options` and then does
+         * `+options.duration`. A key present with an undefined value is
+         * therefore NaN, not "use the default": the flight runs for NaN
+         * milliseconds, sets the zoom to NaN on its first frame, and every
+         * later camera call throws "failed to invert matrix" — which took the
+         * whole app down with it, because a throw inside an effect unmounts
+         * the tree.
+         *
+         * Omitting the key gets mapbox's own speed-based duration.
+         */
         map.flyTo({
           center: [lon, lat],
           zoom: Math.max(map.getZoom(), 12),
-          duration: prefersReducedMotion() ? 0 : undefined,
+          ...(prefersReducedMotion() ? { duration: 0 } : {}),
         });
       }
 
