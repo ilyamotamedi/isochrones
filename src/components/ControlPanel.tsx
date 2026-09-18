@@ -28,6 +28,10 @@ export function ControlPanel({
       <h1 className="panel__title">isochrones</h1>
       <p className="panel__subtitle">See how far you can get.</p>
 
+      {/*
+        The search field stays outside `.panel__body`. Its suggestions dropdown
+        must never sit inside a scrollable ancestor, or it gets clipped.
+      */}
       <div className="panel__field">
         <LocationSearch
           map={map}
@@ -37,30 +41,32 @@ export function ControlPanel({
         />
       </div>
 
-      <div className="panel__row">
-        <button
-          type="button"
-          className="btn btn--subtle"
-          onClick={onUseMyLocation}
-          disabled={locating}
-        >
-          {locating ? 'Locating…' : 'Use my location'}
-        </button>
-        <span className="panel__hint">or click the map</span>
-      </div>
-
-      {locationError && <p className="panel__error">{locationError}</p>}
-
-      {origin && (
-        <div className="panel__origin">
-          <span className="panel__origin-dot" aria-hidden="true" />
-          {/*
-            Rendered as text. This value can originate from a share link, so it
-            must never be injected as HTML.
-          */}
-          <span className="panel__origin-label">{origin.label}</span>
+      <div className="panel__body">
+        <div className="panel__row">
+          <button
+            type="button"
+            className="btn btn--subtle"
+            onClick={onUseMyLocation}
+            disabled={locating}
+          >
+            {locating ? 'Locating…' : 'Use my location'}
+          </button>
+          <span className="panel__hint">or click the map</span>
         </div>
-      )}
+
+        {locationError && <p className="panel__error">{locationError}</p>}
+
+        {origin && (
+          <div className="panel__origin">
+            <span className="panel__origin-dot" aria-hidden="true" />
+            {/*
+              Rendered as text. This value can originate from a share link, so it
+              must never be injected as HTML.
+            */}
+            <span className="panel__origin-label">{origin.label}</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

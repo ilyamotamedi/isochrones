@@ -62,9 +62,25 @@ body {
   box-shadow: var(--panel-shadow);
   padding: 16px;
   z-index: 10;
-  /* Keeps the panel usable on short viewports once bands and status are added. */
-  max-height: calc(100vh - 24px);
-  overflow-y: auto;
+  /*
+   * Deliberately NOT scrollable.
+   *
+   * `overflow` here creates a clipping context that cuts off the search
+   * suggestions dropdown. If the panel ever needs to scroll, that must happen
+   * in `.panel__body` below — never on an ancestor of the search field.
+   */
+}
+
+/*
+ * Content below the search field. Only this region may scroll, and only when
+ * the viewport is genuinely too short to show it, which keeps the suggestions
+ * dropdown permanently outside any scroll container.
+ */
+@media (max-height: 620px) {
+  .panel__body {
+    max-height: calc(100vh - 210px);
+    overflow-y: auto;
+  }
 }
 
 .panel__title {
@@ -159,6 +175,15 @@ body {
   outline-offset: 2px;
 }
 
+/*
+ * The suggestions listbox is portaled to <body> with position:fixed, so it sits
+ * in the root stacking context rather than the panel's. It must outrank the
+ * panel's z-index or it renders behind it.
+ */
+mapbox-search-listbox {
+  z-index: 20;
+}
+
 /* --- Mobile: panel becomes a top sheet --- */
 
 @media (max-width: 640px) {
@@ -169,7 +194,12 @@ body {
     width: 100%;
     max-width: 100%;
     border-radius: 0 0 var(--radius) var(--radius);
-    max-height: 60vh;
+  }
+
+  /* Cap the lower body, never the panel itself — see the note on .panel. */
+  .panel__body {
+    max-height: 50vh;
+    overflow-y: auto;
   }
 }
 
