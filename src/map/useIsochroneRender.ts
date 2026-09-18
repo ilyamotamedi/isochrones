@@ -9,7 +9,8 @@ import {
   setVisibleBands,
 } from './isochroneLayer';
 import { featureCollectionBounds } from './bbox';
-import { FIT_PADDING_DESKTOP, FIT_PADDING_MOBILE, MOBILE_BREAKPOINT } from '../config';
+import { prefersReducedMotion } from './motion';
+import type { FitPadding } from '../config';
 
 /**
  * Pushes isochrone data, colour scale and band visibility onto the map.
@@ -23,10 +24,21 @@ export function useIsochroneRender(
   data: FeatureCollection | null,
   visible: number[],
   bands: number[],
+  /**
+   * Called at fit time rather than passed as a value, because the padding
+   * depends on the panel's measured size and that is only correct once the
+   * panel has laid out with the current result.
+   */
+  getPadding: () => FitPadding,
 ): void {
   // Identifies a distinct result, so the camera only moves for genuinely new
   // geometry rather than on every render.
   const fittedRef = useRef<FeatureCollection | null>(null);
+
+  // Held in a ref so a caller redefining the callback cannot retrigger the
+  // data effect and re-fit the camera.
+  const paddingRef = useRef(getPadding);
+  paddingRef.current = getPadding;
 
   // The ramp domain is the requested band set, so it must be reapplied when the
   // profile changes the minute values — not just when new geometry arrives.
@@ -60,9 +72,6 @@ export function useIsochroneRender(
     const bounds = featureCollectionBounds(data);
     if (!bounds) return;
 
-    const padding =
-      window.innerWidth <= MOBILE_BREAKPOINT ? FIT_PADDING_MOBILE : FIT_PADDING_DESKTOP;
-
     map.fitBounds(
       [
         [bounds[0], bounds[1]],
@@ -71,8 +80,13 @@ export function useIsochroneRender(
       {
         // Asymmetric padding keeps the result clear of the floating panel
         // rather than centring it behind the controls.
-        padding,
-        duration: 700,
+        padding: paddingRef.current(),
+        /*
+         * A camera sweep across most of the viewport is precisely the kind of
+         * motion this preference exists to suppress, so honour it by cutting
+         * straight to the result. The CSS media query cannot reach this.
+         */
+        duration: prefersReducedMotion() ? 0 : 700,
         // Guards against a single tiny contour zooming to street level.
         maxZoom: 15,
       },

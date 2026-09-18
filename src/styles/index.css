@@ -83,6 +83,13 @@ body {
   }
 }
 
+.panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .panel__title {
   margin: 0;
   font-size: 18px;
@@ -94,6 +101,36 @@ body {
   margin: 2px 0 14px;
   font-size: 13px;
   color: var(--text-muted);
+}
+
+/*
+ * Hidden by default and revealed only at mobile widths. Above the breakpoint
+ * the panel is a small card with the map beside it, so there is nothing for
+ * collapsing to reveal.
+ */
+.panel__collapse {
+  display: none;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  padding: 0;
+  margin: -4px -4px 0 0;
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.panel__collapse svg {
+  width: 22px;
+  height: 22px;
+}
+
+.panel__collapse:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .panel__field {
@@ -189,9 +226,15 @@ body {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
+  /* Reset the fieldset defaults that would otherwise box the group. */
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
 }
 
 .profiles__btn {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -223,9 +266,29 @@ body {
   font-weight: 500;
 }
 
-.profiles__btn:focus-visible {
+/*
+ * The radio itself is visually hidden but still the focus target, so the ring
+ * has to be drawn on its label instead.
+ */
+.profiles__btn:has(input:focus-visible) {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/*
+ * Visually hidden but still exposed to assistive tech and still focusable.
+ * `display: none` or `visibility: hidden` would remove it from both.
+ */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* --- Band toggles / legend --- */
@@ -437,6 +500,38 @@ mapbox-search-listbox {
   z-index: 20;
 }
 
+/* --- Focus visibility --- */
+
+/*
+ * Every interactive control needs a visible focus ring, not just the ones that
+ * happen to be buttons. The checkbox and the small icon controls are the easy
+ * ones to forget, and they are exactly the ones a keyboard user lands on while
+ * working through the band list.
+ */
+.bands__check:focus-visible,
+.bands__remove:focus-visible,
+.bands__add:focus-visible,
+.share__fallback input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --- Reduced motion --- */
+
+/*
+ * Only covers CSS. The map's own camera animations are handled in JS, where
+ * the same preference is read before choosing a fly-to duration.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* --- Mobile: panel becomes a top sheet --- */
 
 @media (max-width: 640px) {
@@ -453,6 +548,46 @@ mapbox-search-listbox {
   .panel__body {
     max-height: 50vh;
     overflow-y: auto;
+  }
+
+  /*
+   * 16px is the threshold below which iOS Safari zooms the viewport when a
+   * field takes focus. Meeting it here is what lets the viewport meta tag
+   * leave pinch-zoom enabled.
+   */
+  .bands__input,
+  .share__fallback input,
+  input[type='text'],
+  input[type='search'] {
+    font-size: 16px;
+  }
+
+  /* Comfortable touch targets for the two smallest controls. */
+  .bands__remove {
+    width: 32px;
+    height: 32px;
+  }
+
+  .bands__check {
+    width: 18px;
+    height: 18px;
+  }
+
+  .panel__collapse {
+    display: grid;
+  }
+
+  /*
+   * Collapsed keeps the title and the search field, so the panel is still a
+   * way to start a new search rather than an inert bar. Only the settings
+   * below it are hidden.
+   */
+  .panel--collapsed .panel__body {
+    display: none;
+  }
+
+  .panel--collapsed .panel__field {
+    margin-bottom: 0;
   }
 }
 

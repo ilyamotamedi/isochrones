@@ -77,12 +77,56 @@ export const INITIAL_VIEW = {
   zoom: 11,
 };
 
-/**
- * Padding used when fitting the camera to a result, so the isochrone lands in
- * the visible part of the map rather than behind the floating control panel.
- */
-export const FIT_PADDING_DESKTOP = { top: 80, bottom: 48, left: 400, right: 48 };
-export const FIT_PADDING_MOBILE = { top: 280, bottom: 48, left: 24, right: 24 };
-
 /** Viewport width below which the panel becomes a top sheet. */
 export const MOBILE_BREAKPOINT = 640;
+
+/** Breathing room between the panel edge and the fitted result. */
+const FIT_GAP = 16;
+/** Clear of the zoom controls, scale bar and attribution. */
+const FIT_EDGE = 32;
+
+export interface FitPadding {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+/**
+ * Padding that keeps a fitted result clear of the floating panel.
+ *
+ * Measured from the live panel rather than hardcoded. The panel's height
+ * depends on how many bands are listed, whether an error is showing and how
+ * long the address is, and on a phone the difference between the guess and the
+ * truth was most of the screen.
+ *
+ * Padding is clamped: mapbox-gl throws if the padding exceeds the canvas, and
+ * a collapsed-to-nothing viewport is a worse failure than an imperfect fit.
+ */
+export function fitPaddingFor(panel: DOMRect | null, width: number, height: number): FitPadding {
+  const maxH = Math.max(0, width * 0.4);
+  const maxV = Math.max(0, height * 0.4);
+
+  if (!panel) {
+    return { top: FIT_EDGE, bottom: FIT_EDGE, left: FIT_EDGE, right: FIT_EDGE };
+  }
+
+  // As a top sheet the panel spans the full width, so it can only be avoided
+  // vertically; as a floating card it can only be avoided horizontally.
+  if (width <= MOBILE_BREAKPOINT) {
+    return {
+      top: Math.min(maxV, panel.bottom + FIT_GAP),
+      bottom: FIT_EDGE,
+      left: FIT_EDGE,
+      right: FIT_EDGE,
+    };
+  }
+
+  return {
+    top: FIT_EDGE,
+    bottom: FIT_EDGE,
+    left: Math.min(maxH, panel.right + FIT_GAP),
+    right: FIT_EDGE,
+  };
+}
+

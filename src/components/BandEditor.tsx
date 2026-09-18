@@ -11,10 +11,16 @@ interface BandEditorProps {
   onRemove: (index: number) => void;
   onAdd: () => void;
   /**
-   * Whether visibility can be changed right now. False when there is no result
-   * on the map, or when the draft has moved on from what is rendered.
+   * Whether there is a result on the map to filter at all.
    */
   canToggle: boolean;
+  /**
+   * How many bands are actually drawn right now.
+   *
+   * Rows past this have no band behind them yet — they are pending values the
+   * user has added but not submitted — so their checkbox has nothing to act on.
+   */
+  renderedCount: number;
   /** Validation message, shown beneath the rows. */
   error: string | null;
 }
@@ -39,6 +45,7 @@ export function BandEditor({
   onRemove,
   onAdd,
   canToggle,
+  renderedCount,
   error,
 }: BandEditorProps) {
   const parsed = parseBandInputs(inputs);
@@ -53,7 +60,15 @@ export function BandEditor({
   }
 
   const span = Math.max(1, inputs.length - 1);
-  const visibleCount = inputs.length - inputs.filter((_, i) => hidden.has(i)).length;
+
+  /*
+   * Counted over the *rendered* bands, not the draft rows. The guard exists to
+   * stop the map going blank, so it has to reason about what is on the map.
+   */
+  let visibleRendered = 0;
+  for (let i = 0; i < renderedCount; i += 1) {
+    if (!hidden.has(i)) visibleRendered += 1;
+  }
 
   return (
     <fieldset className="bands">
@@ -63,6 +78,13 @@ export function BandEditor({
         const isVisible = !hidden.has(index);
         const rank = rankByRow[index] ?? index;
         const invalid = index === errorIndex;
+        const toggleDisabled =
+          !canToggle ||
+          // Nothing drawn at this position yet.
+          index >= renderedCount ||
+          // Blocking the last visible band prevents an empty map, which reads
+          // as a bug rather than as a deliberately cleared view.
+          (isVisible && visibleRendered === 1);
 
         return (
           // Row identity is positional: the value is being edited, so it cannot
@@ -72,9 +94,7 @@ export function BandEditor({
               type="checkbox"
               className="bands__check"
               checked={isVisible}
-              // Blocking the last visible band prevents an empty map, which
-              // reads as a bug rather than as a deliberately cleared view.
-              disabled={!canToggle || (isVisible && visibleCount === 1)}
+              disabled={toggleDisabled}
               onChange={() => onToggle(index)}
               aria-label={`Show the ${value || '—'} minute band`}
             />

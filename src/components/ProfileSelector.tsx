@@ -14,33 +14,44 @@ const ICON: Record<Profile, string> = {
     'M18.9 5.6A1.5 1.5 0 0 0 17.5 4.5h-11a1.5 1.5 0 0 0-1.4 1.1L3 12v8a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1v-1h12v1a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1v-8ZM6.8 6.5h10.4l1.4 4H5.4ZM6.5 16a1.5 1.5 0 1 1 1.5-1.5A1.5 1.5 0 0 1 6.5 16m11 0a1.5 1.5 0 1 1 1.5-1.5 1.5 1.5 0 0 1-1.5 1.5',
 };
 
+/**
+ * Mode of transport.
+ *
+ * Native radio inputs behind styled labels, rather than buttons carrying
+ * `role="radio"`. A hand-rolled radiogroup also owes you roving tabindex and
+ * arrow-key handling, and getting that subtly wrong is worse than not claiming
+ * the role at all. The inputs are visually hidden but still focusable, so
+ * keyboard and screen-reader behaviour is whatever the platform does.
+ */
 export function ProfileSelector({ value, onChange }: ProfileSelectorProps) {
   return (
-    <div
-      className="profiles"
-      role="radiogroup"
-      aria-label="Mode of transport"
-    >
+    <fieldset className="profiles">
+      <legend className="sr-only">Mode of transport</legend>
+
       {PROFILES.map((profile) => {
         const selected = profile === value;
         return (
-          <button
+          <label
             key={profile}
-            type="button"
-            role="radio"
-            aria-checked={selected}
             className={`profiles__btn${selected ? ' profiles__btn--active' : ''}`}
-            onClick={() => onChange(profile)}
           >
+            <input
+              type="radio"
+              className="sr-only"
+              name="profile"
+              value={profile}
+              checked={selected}
+              onChange={() => onChange(profile)}
+            />
             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
               <path d={ICON[profile]} fill="currentColor" />
             </svg>
             {/* Text label, not just the icon — three similar glyphs are not
                 distinguishable enough on their own. */}
             <span>{PROFILE_LABEL[profile]}</span>
-          </button>
+          </label>
         );
       })}
-    </div>
+    </fieldset>
   );
 }

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { HAS_VALID_TOKEN, MAPBOX_TOKEN } from './config';
+import { HAS_VALID_TOKEN, MAPBOX_TOKEN, MOBILE_BREAKPOINT, fitPaddingFor } from './config';
 import { useMapboxMap } from './map/useMapboxMap';
 import { useOriginMarker } from './map/useOriginMarker';
 import { useMapClick } from './map/useMapClick';
 import { useIsochroneRender } from './map/useIsochroneRender';
+import { prefersReducedMotion } from './map/motion';
 import { useIsochroneQuery } from './state/useIsochroneQuery';
 import { encodeShareState, parseShareState } from './state/urlState';
 import { parseBandInputs, remapIndices, suggestNextBand } from './state/bandEditor';
@@ -69,6 +70,29 @@ export function App() {
   const [locationError, setLocationError] = useState<string | null>(null);
 
   /*
+   * Mobile only, enforced in CSS. The panel is a top sheet below the
+   * breakpoint and covers most of a phone screen, so it needs a way out of
+   * the way; on desktop it is a small card with the map beside it.
+   */
+  const [collapsed, setCollapsed] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  /*
+   * Measured, not assumed. The panel's height varies with the number of bands,
+   * the length of the address and whether an error is showing, and on a phone
+   * a fixed guess left the result almost entirely behind the sheet.
+   */
+  const getFitPadding = useCallback(
+    () =>
+      fitPaddingFor(
+        panelRef.current?.getBoundingClientRect() ?? null,
+        window.innerWidth,
+        window.innerHeight,
+      ),
+    [],
+  );
+
+  /*
    * Hidden bands are stored as row indices, not minute values.
    *
    * Position survives things a value cannot: switching profile rewrites every
@@ -109,7 +133,7 @@ export function App() {
   }, [draftOrigin, draftProfile, parsedBands, submitted]);
 
   useOriginMarker(map, draftOrigin);
-  useIsochroneRender(map, ready, data, visible, renderedBands);
+  useIsochroneRender(map, ready, data, visible, renderedBands, getFitPadding);
 
   /*
    * Mirror state into the URL.
@@ -154,7 +178,11 @@ export function App() {
       setLocationError(null);
 
       if (recenter && map) {
-        map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 12) });
+        map.flyTo({
+          center: [lon, lat],
+          zoom: Math.max(map.getZoom(), 12),
+          duration: prefersReducedMotion() ? 0 : undefined,
+        });
       }
 
       const label = await reverseGeocode(lon, lat, MAPBOX_TOKEN);
@@ -231,6 +259,16 @@ export function App() {
       profile: draftProfile,
       minutes: parsedBands.values,
     });
+
+    /*
+     * On a phone the panel covers most of the screen, so submitting and then
+     * seeing almost none of the result is the default experience. Collapsing
+     * at the moment the user's attention moves to the map is the same bargain
+     * Google Maps makes. Desktop has room for both, so it is left alone.
+     */
+    if (window.innerWidth <= MOBILE_BREAKPOINT) {
+      setCollapsed(true);
+    }
   }, [draftOrigin, draftProfile, parsedBands]);
 
   useMapClick(map, (lon, lat) => {
@@ -271,6 +309,9 @@ export function App() {
     <div className="app">
       <div ref={containerRef} className="map-container" />
       <ControlPanel
+        panelRef={panelRef}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((prev) => !prev)}
         map={map}
         origin={draftOrigin}
         searchValue={searchValue}
@@ -288,9 +329,14 @@ export function App() {
         onAddBand={handleAddBand}
         onRemoveBand={handleRemoveBand}
         bandError={parsedBands.ok ? null : parsedBands.error}
-        // Toggling filters the rendered result, so it only makes sense while the
-        // form still describes what is rendered.
-        canToggle={status.kind === 'success' && !dirty}
+        /*
+         * Toggling is gated on there being something drawn, not on the draft
+         * being clean. Visibility is positional, so it keeps meaning while the
+         * values are being edited — and disabling the checkboxes would pull
+         * them out of the keyboard tab order for as long as the form is dirty.
+         */
+        canToggle={status.kind === 'success'}
+        renderedCount={renderedBands.length}
         dirty={dirty}
         hasSubmitted={submitted !== null}
         canSubmit={draftOrigin !== null && parsedBands.ok && dirty}

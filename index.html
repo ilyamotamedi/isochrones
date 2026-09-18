@@ -2,8 +2,16 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <!--
+      No `user-scalable=no`. It was there to stop iOS zooming when a small
+      input takes focus, but blocking pinch-zoom fails WCAG 1.4.4 and hurts
+      anyone who needs to magnify the map. The input side is handled properly
+      in CSS instead, by setting fields to 16px on small screens.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="See how far you can travel in a given time, on foot, by bike, or by car." />
+    <meta name="theme-color" content="#ffffff" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>isochrones</title>
   </head>
   <body>
