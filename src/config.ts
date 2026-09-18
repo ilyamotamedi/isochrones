@@ -24,23 +24,47 @@ export const MAP_STYLE = 'mapbox://styles/mapbox/light-v11';
 /**
  * Band styling.
  *
- * A single hue is used for every contour rather than one colour per band.
- * The contours are nested, so translucent fills stack and the area closest to
- * the origin is painted four times over — that accumulation is what produces
- * the gradient, and it reads as one coherent "reachability" field instead of
- * four unrelated colours blending into mud.
+ * Contours are nested, so fills stack and the innermost area is painted over
+ * several times. An earlier version relied on that accumulation alone with a
+ * single hue — verified against a real render, it produced almost no visible
+ * difference between the four bands.
  *
- * With four bands at 0.16 the cumulative opacities land at roughly
- * 0.16 / 0.29 / 0.41 / 0.50, which keeps the innermost band well clear of
- * obscuring the basemap beneath it.
+ * So colour now carries the signal: a ramp from a deep blue at the nearest
+ * band to a pale blue at the furthest. Stacking still deepens the centre, but
+ * it is reinforcing the ramp rather than doing all the work.
+ *
+ * The ramp domain is the band set itself, not a fixed 0–60, because walking
+ * tops out at 20 minutes and would otherwise sit entirely in the dark end.
  */
-export const BAND_COLOR = '#1a73e8';
-export const BAND_FILL_OPACITY = 0.16;
-export const BAND_LINE_OPACITY = 0.45;
+export const BAND_COLOR_NEAR = '#174ea6';
+export const BAND_COLOR_FAR = '#a8c7fa';
+export const BAND_FILL_OPACITY = 0.3;
 
-/** Cumulative opacity of the nth band inwards, used to match legend swatches. */
-export function cumulativeBandOpacity(depth: number): number {
-  return 1 - (1 - BAND_FILL_OPACITY) ** depth;
+/**
+ * Outlines use their own, deliberately narrower ramp.
+ *
+ * Reusing the fill ramp drew the outermost contour in the palest colour, which
+ * is exactly the boundary a reader looks for first. Holding the far end at a
+ * mid blue keeps every edge crisp while still ordering the bands by tone.
+ */
+export const BAND_LINE_COLOR_FAR = '#4285f4';
+export const BAND_LINE_OPACITY = 0.8;
+
+function hexToRgb(hex: string): [number, number, number] {
+  const n = Number.parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/**
+ * JS mirror of the map's colour ramp, so legend swatches match what is drawn.
+ * `t` is 0 at the nearest band and 1 at the furthest.
+ */
+export function bandColorAt(t: number): string {
+  const near = hexToRgb(BAND_COLOR_NEAR);
+  const far = hexToRgb(BAND_COLOR_FAR);
+  const clamped = Math.min(1, Math.max(0, t));
+  const mix = near.map((c, i) => Math.round(c + ((far[i] ?? c) - c) * clamped));
+  return `rgb(${mix[0]}, ${mix[1]}, ${mix[2]})`;
 }
 
 /**

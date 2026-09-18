@@ -4,6 +4,7 @@ import type { FeatureCollection } from 'geojson';
 import {
   addIsochroneLayers,
   clearIsochrone,
+  setBandScale,
   setIsochroneData,
   setVisibleBands,
 } from './isochroneLayer';
@@ -11,20 +12,34 @@ import { featureCollectionBounds } from './bbox';
 import { FIT_PADDING_DESKTOP, FIT_PADDING_MOBILE, MOBILE_BREAKPOINT } from '../config';
 
 /**
- * Pushes isochrone data and band visibility onto the map.
+ * Pushes isochrone data, colour scale and band visibility onto the map.
  *
- * Data and visibility are separate effects on purpose. Toggling a band must not
- * re-run the data path, and must never move the camera.
+ * These are three separate effects on purpose. Toggling a band must not re-run
+ * the data path, and must never move the camera.
  */
 export function useIsochroneRender(
   map: MapboxMap | null,
   ready: boolean,
   data: FeatureCollection | null,
   visible: number[],
+  bands: number[],
 ): void {
   // Identifies a distinct result, so the camera only moves for genuinely new
   // geometry rather than on every render.
   const fittedRef = useRef<FeatureCollection | null>(null);
+
+  // The ramp domain is the requested band set, so it must be reapplied when the
+  // profile changes the minute values — not just when new geometry arrives.
+  const bandKey = bands.join(',');
+
+  useEffect(() => {
+    if (!map || !ready) return;
+
+    addIsochroneLayers(map);
+    setBandScale(map, bands);
+    // bandKey stands in for bands, which is a fresh array on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, ready, bandKey]);
 
   useEffect(() => {
     if (!map || !ready) return;

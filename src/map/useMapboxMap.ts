@@ -50,6 +50,15 @@ export function useMapboxMap(containerRef: React.RefObject<HTMLDivElement | null
     instanceRef.current = instance;
     setMap(instance);
 
+    /*
+     * Dev-only handle for automated verification, which needs to assert layer
+     * order and filter state directly rather than inferring them from pixels.
+     * Stripped from production builds by the constant condition.
+     */
+    if (import.meta.env.DEV) {
+      (window as unknown as { __map?: mapboxgl.Map }).__map = instance;
+    }
+
     return () => {
       instanceRef.current = null;
       setMap(null);

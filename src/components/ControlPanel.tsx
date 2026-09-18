@@ -3,6 +3,7 @@ import { LocationSearch } from './LocationSearch';
 import { ProfileSelector } from './ProfileSelector';
 import { BandToggles } from './BandToggles';
 import { StatusBanner } from './StatusBanner';
+import { ShareButton } from './ShareButton';
 import type { Origin, Profile, QueryStatus } from '../types';
 
 interface ControlPanelProps {
@@ -96,6 +97,12 @@ export function ControlPanel({
         </div>
 
         <StatusBanner status={status} hasOrigin={origin !== null} />
+
+        {origin && (
+          <div className="panel__section">
+            <ShareButton disabled={status.kind !== 'success'} />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { BAND_COLOR, cumulativeBandOpacity } from '../config';
+import { bandColorAt } from '../config';
 
 interface BandTogglesProps {
   /** All requested bands, ascending. */
@@ -15,13 +15,16 @@ interface BandTogglesProps {
  * Keeping the swatch, the time and the checkbox in one row avoids the
  * redundancy of a separate read-only legend listing the same four values.
  *
- * Swatch colours use the cumulative opacity each band reaches on the map, since
- * nested fills stack — a flat swatch at the per-band opacity would not match
- * what the user actually sees.
+ * Swatches sample the same near→far colour ramp the map paints, so the legend
+ * reads as a key rather than as decoration. An unchecked band keeps its
+ * position but drops to a muted grey, which makes the off state legible
+ * without relying on the checkbox alone.
  */
 export function BandToggles({ bands, visible, onToggle, disabled }: BandTogglesProps) {
   const visibleSet = new Set(visible);
   const lastVisible = visible.length === 1;
+  // Guard against a single-band set dividing by zero.
+  const span = Math.max(1, bands.length - 1);
 
   return (
     <fieldset className="bands" disabled={disabled}>
@@ -29,8 +32,6 @@ export function BandToggles({ bands, visible, onToggle, disabled }: BandTogglesP
 
       {bands.map((minutes, index) => {
         const isVisible = visibleSet.has(minutes);
-        // Bands are ascending, so depth counts inwards from the outermost.
-        const depth = bands.length - index;
 
         return (
           <label key={minutes} className="bands__row">
@@ -46,8 +47,7 @@ export function BandToggles({ bands, visible, onToggle, disabled }: BandTogglesP
               className="bands__swatch"
               aria-hidden="true"
               style={{
-                backgroundColor: BAND_COLOR,
-                opacity: isVisible ? cumulativeBandOpacity(depth) : 0.12,
+                backgroundColor: isVisible ? bandColorAt(index / span) : '#d6d9de',
               }}
             />
             <span className="bands__label">{minutes} min</span>

@@ -1,12 +1,44 @@
-import type { FilterSpecification, Map as MapboxMap } from 'mapbox-gl';
+import type {
+  DataDrivenPropertyValueSpecification,
+  FilterSpecification,
+  Map as MapboxMap,
+} from 'mapbox-gl';
 import type { FeatureCollection } from 'geojson';
-import { BAND_COLOR, BAND_FILL_OPACITY, BAND_LINE_OPACITY } from '../config';
+import {
+  BAND_COLOR_FAR,
+  BAND_COLOR_NEAR,
+  BAND_FILL_OPACITY,
+  BAND_LINE_COLOR_FAR,
+  BAND_LINE_OPACITY,
+} from '../config';
 
 export const ISO_SOURCE = 'isochrone';
 export const ISO_FILL_LAYER = 'isochrone-fill';
 export const ISO_LINE_LAYER = 'isochrone-line';
 
 const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] };
+
+/**
+ * Colour ramp across the active band set: deepest at the nearest contour,
+ * palest at the furthest.
+ *
+ * The domain is rescaled per profile rather than fixed to 0–60, because a
+ * walking set peaking at 20 minutes would otherwise occupy only the dark third
+ * of the ramp and lose almost all differentiation.
+ */
+function colorRamp(
+  bands: readonly number[],
+  far: string,
+): DataDrivenPropertyValueSpecification<string> {
+  const min = bands[0];
+  const max = bands[bands.length - 1];
+
+  if (min === undefined || max === undefined || min === max) {
+    return BAND_COLOR_NEAR;
+  }
+
+  return ['interpolate', ['linear'], ['get', 'contour'], min, BAND_COLOR_NEAR, max, far];
+}
 
 /**
  * Id of the first label layer, used as `beforeId` so the fills sit underneath
@@ -46,7 +78,7 @@ export function addIsochroneLayers(map: MapboxMap): void {
       type: 'fill',
       source: ISO_SOURCE,
       paint: {
-        'fill-color': BAND_COLOR,
+        'fill-color': BAND_COLOR_NEAR,
         'fill-opacity': BAND_FILL_OPACITY,
       },
       layout: {
@@ -68,8 +100,8 @@ export function addIsochroneLayers(map: MapboxMap): void {
       type: 'line',
       source: ISO_SOURCE,
       paint: {
-        'line-color': BAND_COLOR,
-        'line-width': 1,
+        'line-color': BAND_COLOR_NEAR,
+        'line-width': 1.2,
         'line-opacity': BAND_LINE_OPACITY,
       },
       layout: {
@@ -78,6 +110,18 @@ export function addIsochroneLayers(map: MapboxMap): void {
     },
     beforeId,
   );
+}
+
+/** Rescales the colour ramps to the current band values. */
+export function setBandScale(map: MapboxMap, bands: readonly number[]): void {
+  if (bands.length === 0) return;
+
+  if (map.getLayer(ISO_FILL_LAYER)) {
+    map.setPaintProperty(ISO_FILL_LAYER, 'fill-color', colorRamp(bands, BAND_COLOR_FAR));
+  }
+  if (map.getLayer(ISO_LINE_LAYER)) {
+    map.setPaintProperty(ISO_LINE_LAYER, 'line-color', colorRamp(bands, BAND_LINE_COLOR_FAR));
+  }
 }
 
 /** Network path: replace the rendered geometry. */
