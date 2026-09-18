@@ -1,6 +1,9 @@
 import type { Map as MapboxMap } from 'mapbox-gl';
 import { LocationSearch } from './LocationSearch';
-import type { Origin } from '../types';
+import { ProfileSelector } from './ProfileSelector';
+import { BandToggles } from './BandToggles';
+import { StatusBanner } from './StatusBanner';
+import type { Origin, Profile, QueryStatus } from '../types';
 
 interface ControlPanelProps {
   map: MapboxMap | null;
@@ -11,6 +14,12 @@ interface ControlPanelProps {
   onUseMyLocation: () => void;
   locating: boolean;
   locationError: string | null;
+  profile: Profile;
+  onProfileChange: (profile: Profile) => void;
+  bands: number[];
+  visible: number[];
+  onToggleBand: (minutes: number) => void;
+  status: QueryStatus;
 }
 
 export function ControlPanel({
@@ -22,6 +31,12 @@ export function ControlPanel({
   onUseMyLocation,
   locating,
   locationError,
+  profile,
+  onProfileChange,
+  bands,
+  visible,
+  onToggleBand,
+  status,
 }: ControlPanelProps) {
   return (
     <div className="panel">
@@ -66,6 +81,21 @@ export function ControlPanel({
             <span className="panel__origin-label">{origin.label}</span>
           </div>
         )}
+
+        <div className="panel__section">
+          <ProfileSelector value={profile} onChange={onProfileChange} />
+        </div>
+
+        <div className="panel__section">
+          <BandToggles
+            bands={bands}
+            visible={visible}
+            onToggle={onToggleBand}
+            disabled={status.kind !== 'success'}
+          />
+        </div>
+
+        <StatusBanner status={status} hasOrigin={origin !== null} />
       </div>
     </div>
   );
