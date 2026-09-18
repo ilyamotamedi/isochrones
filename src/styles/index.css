@@ -236,10 +236,6 @@ body {
   padding: 0;
 }
 
-.bands:disabled {
-  opacity: 0.5;
-}
-
 .bands__legend {
   padding: 0;
   font-size: 12px;
@@ -252,32 +248,108 @@ body {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 4px 0;
+  padding: 3px 0;
   font-size: 13px;
-  cursor: pointer;
 }
 
-.bands:disabled .bands__row {
-  cursor: default;
-}
-
-.bands__row input {
+.bands__check {
   accent-color: var(--accent);
-  cursor: inherit;
   margin: 0;
+  flex: none;
+}
+
+.bands__check:disabled {
+  cursor: not-allowed;
 }
 
 .bands__swatch {
   width: 22px;
   height: 14px;
+  flex: none;
   border-radius: 3px;
   /* Outline keeps very faint swatches visible against white. */
   box-shadow: inset 0 0 0 1px rgba(26, 115, 232, 0.35);
-  transition: opacity 120ms ease;
+  transition: background-color 120ms ease;
 }
 
-.bands__label {
+.bands__input {
+  /*
+   * Sized for three digits. A full-width field would imply free text when the
+   * useful range is 1–60.
+   */
+  width: 56px;
+  padding: 5px 7px;
+  font: inherit;
+  font-size: 13px;
   color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.bands__input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: var(--accent);
+}
+
+.bands__input--invalid {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.bands__unit {
+  color: var(--text-muted);
+  /* Pushes the remove button to the far edge, away from the number field. */
+  margin-right: auto;
+}
+
+.bands__remove {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.bands__remove:hover:not(:disabled) {
+  background: #f1f3f4;
+  color: var(--danger);
+}
+
+.bands__remove:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.bands__add {
+  margin-top: 6px;
+  padding: 4px 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.bands__add:hover {
+  text-decoration: underline;
+}
+
+.bands__error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--danger);
 }
 
 /* --- Status --- */
@@ -311,6 +383,29 @@ body {
 
 .btn--primary:hover:not(:disabled) {
   background: #1765cc;
+}
+
+/*
+ * A dimmed blue still reads as a live button. Going grey makes "nothing to
+ * submit" unambiguous, which matters when the share button sits right below.
+ */
+.btn--primary:disabled {
+  background: #e8eaed;
+  border-color: #e8eaed;
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+.btn--block {
+  width: 100%;
+  justify-content: center;
+}
+
+.panel__pending {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
 }
 
 .share__btn {

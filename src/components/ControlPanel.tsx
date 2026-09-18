@@ -1,7 +1,8 @@
 import type { Map as MapboxMap } from 'mapbox-gl';
+import type { FormEvent } from 'react';
 import { LocationSearch } from './LocationSearch';
 import { ProfileSelector } from './ProfileSelector';
-import { BandToggles } from './BandToggles';
+import { BandEditor } from './BandEditor';
 import { StatusBanner } from './StatusBanner';
 import { ShareButton } from './ShareButton';
 import type { Origin, Profile, QueryStatus } from '../types';
@@ -17,9 +18,18 @@ interface ControlPanelProps {
   locationError: string | null;
   profile: Profile;
   onProfileChange: (profile: Profile) => void;
-  bands: number[];
-  visible: number[];
-  onToggleBand: (minutes: number) => void;
+  bandInputs: string[];
+  hidden: ReadonlySet<number>;
+  onBandInput: (index: number, value: string) => void;
+  onToggleBand: (index: number) => void;
+  onAddBand: () => void;
+  onRemoveBand: (index: number) => void;
+  bandError: string | null;
+  canToggle: boolean;
+  dirty: boolean;
+  hasSubmitted: boolean;
+  canSubmit: boolean;
+  onSubmit: () => void;
   status: QueryStatus;
 }
 
@@ -34,19 +44,37 @@ export function ControlPanel({
   locationError,
   profile,
   onProfileChange,
-  bands,
-  visible,
+  bandInputs,
+  hidden,
+  onBandInput,
   onToggleBand,
+  onAddBand,
+  onRemoveBand,
+  bandError,
+  canToggle,
+  dirty,
+  hasSubmitted,
+  canSubmit,
+  onSubmit,
   status,
 }: ControlPanelProps) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSubmit();
+  }
+
+  const submitLabel = hasSubmitted ? 'Update map' : 'Show isochrone';
+
   return (
     <div className="panel">
       <h1 className="panel__title">isochrones</h1>
       <p className="panel__subtitle">See how far you can get.</p>
 
       {/*
-        The search field stays outside `.panel__body`. Its suggestions dropdown
-        must never sit inside a scrollable ancestor, or it gets clipped.
+        The search field stays outside the form as well as outside
+        `.panel__body`. Its suggestions dropdown must never sit inside a
+        scrollable ancestor or it gets clipped, and keeping it out of the form
+        stops Enter-to-accept-a-suggestion from also submitting the query.
       */}
       <div className="panel__field">
         <LocationSearch
@@ -57,7 +85,7 @@ export function ControlPanel({
         />
       </div>
 
-      <div className="panel__body">
+      <form className="panel__body" onSubmit={handleSubmit}>
         <div className="panel__row">
           <button
             type="button"
@@ -88,22 +116,43 @@ export function ControlPanel({
         </div>
 
         <div className="panel__section">
-          <BandToggles
-            bands={bands}
-            visible={visible}
+          <BandEditor
+            inputs={bandInputs}
+            hidden={hidden}
+            onChangeInput={onBandInput}
             onToggle={onToggleBand}
-            disabled={status.kind !== 'success'}
+            onAdd={onAddBand}
+            onRemove={onRemoveBand}
+            canToggle={canToggle}
+            error={bandError}
           />
+        </div>
+
+        <div className="panel__section">
+          <button type="submit" className="btn btn--primary btn--block" disabled={!canSubmit}>
+            {status.kind === 'loading' ? 'Loading…' : submitLabel}
+          </button>
+
+          {/*
+            Only shown once something is on the map. Before that the button
+            label already says what to do, and a nag under a fresh form is
+            noise rather than guidance.
+          */}
+          {dirty && hasSubmitted && (
+            <p className="panel__pending" role="status">
+              The map is showing your previous settings.
+            </p>
+          )}
         </div>
 
         <StatusBanner status={status} hasOrigin={origin !== null} />
 
-        {origin && (
+        {hasSubmitted && (
           <div className="panel__section">
             <ShareButton disabled={status.kind !== 'success'} />
           </div>
         )}
-      </div>
+      </form>
     </div>
   );
 }

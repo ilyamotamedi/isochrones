@@ -39,9 +39,13 @@ export function ShareButton({ disabled }: ShareButtonProps) {
 
   return (
     <div className="share">
+      {/*
+        Secondary, not primary. Submit is the action the form is asking for;
+        two solid blue buttons stacked together would compete.
+      */}
       <button
         type="button"
-        className="btn btn--primary share__btn"
+        className="btn btn--subtle share__btn"
         onClick={() => void handleShare()}
         disabled={disabled}
       >

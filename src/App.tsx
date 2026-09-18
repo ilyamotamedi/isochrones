@@ -6,6 +6,7 @@ import { useMapClick } from './map/useMapClick';
 import { useIsochroneRender } from './map/useIsochroneRender';
 import { useIsochroneQuery } from './state/useIsochroneQuery';
 import { encodeShareState, parseShareState } from './state/urlState';
+import { parseBandInputs, remapIndices, suggestNextBand } from './state/bandEditor';
 import { formatCoords, reverseGeocode } from './api/geocode';
 import { SetupNotice } from './components/SetupNotice';
 import { ControlPanel } from './components/ControlPanel';
@@ -18,48 +19,104 @@ import { DEFAULT_BANDS, type IsochroneQuery, type Origin, type Profile } from '.
  */
 const initialShare = parseShareState(window.location.search);
 
+const initialProfile: Profile = initialShare?.profile ?? 'walking';
+const initialBands: number[] = initialShare?.minutes ?? DEFAULT_BANDS[initialProfile];
+
+/*
+ * A shared link is already a submitted result — the recipient should see the
+ * map, not a form waiting to be run.
+ */
+const initialQuery: IsochroneQuery | null = initialShare
+  ? { origin: initialShare.origin, profile: initialProfile, minutes: initialBands }
+  : null;
+
+/*
+ * The URL carries visible *values* because that is self-describing to anyone
+ * reading the link, but visibility is tracked internally by row position so it
+ * can survive the values themselves changing. Convert once, here.
+ */
+const initialHidden: Set<number> = new Set(
+  initialShare
+    ? initialBands
+        .map((minutes, index) => (initialShare.visible.includes(minutes) ? -1 : index))
+        .filter((index) => index >= 0)
+    : [],
+);
+
 export function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const { map, ready } = useMapboxMap(containerRef);
 
-  const [origin, setOrigin] = useState<Origin | null>(initialShare?.origin ?? null);
-  const [profile, setProfile] = useState<Profile>(initialShare?.profile ?? 'walking');
+  /*
+   * State is split in two.
+   *
+   * `draft*` is what the form holds; `submitted` is what the map shows. Nothing
+   * is fetched until the user submits, so a location and a mode can be chosen
+   * together and cost one request rather than two.
+   *
+   * Band *visibility* is deliberately not part of this split. It filters data
+   * already on the client, so it applies immediately and never waits for a
+   * submit it does not need.
+   */
+  const [draftOrigin, setDraftOrigin] = useState<Origin | null>(initialShare?.origin ?? null);
+  const [draftProfile, setDraftProfile] = useState<Profile>(initialProfile);
+  const [draftBands, setDraftBands] = useState<string[]>(() => initialBands.map(String));
+
+  const [submitted, setSubmitted] = useState<IsochroneQuery | null>(initialQuery);
+
   const [searchValue, setSearchValue] = useState(initialShare?.origin.label ?? '');
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
 
   /*
-   * Bands are state, not derived from the profile. A shared link carries its
-   * own band values so it stays a faithful snapshot even if we retune the
-   * per-profile defaults later.
+   * Hidden bands are stored as row indices, not minute values.
+   *
+   * Position survives things a value cannot: switching profile rewrites every
+   * number, and editing a field changes one in place. Tracking "the third band
+   * is hidden" keeps the user's intent intact through both.
    */
-  const [bands, setBands] = useState<number[]>(
-    initialShare?.minutes ?? DEFAULT_BANDS[initialShare?.profile ?? 'walking'],
-  );
-  const [hidden, setHidden] = useState<Set<number>>(() => {
-    if (!initialShare) return new Set();
-    return new Set(initialShare.minutes.filter((m) => !initialShare.visible.includes(m)));
-  });
+  const [hidden, setHidden] = useState<Set<number>>(initialHidden);
 
-  const visible = useMemo(() => {
-    const shown = bands.filter((m) => !hidden.has(m));
-    // Never allow an empty map — that reads as a bug, not as a cleared view.
-    return shown.length > 0 ? shown : bands;
-  }, [bands, hidden]);
+  const parsedBands = useMemo(() => parseBandInputs(draftBands), [draftBands]);
 
-  const query = useMemo<IsochroneQuery | null>(
-    () => (origin ? { origin, profile, minutes: bands } : null),
-    [origin, profile, bands],
-  );
-
-  const status = useIsochroneQuery(query);
+  const status = useIsochroneQuery(submitted);
   const data = status.kind === 'success' ? status.data : null;
 
-  useOriginMarker(map, origin);
-  useIsochroneRender(map, ready, data, visible, bands);
+  const renderedBands = useMemo(() => submitted?.minutes ?? [], [submitted]);
+
+  const visible = useMemo(() => {
+    const shown = renderedBands.filter((_, index) => !hidden.has(index));
+    // Never allow an empty map — that reads as a bug, not as a cleared view.
+    return shown.length > 0 ? shown : renderedBands;
+  }, [renderedBands, hidden]);
+
+  /*
+   * Has the form moved on from what is drawn? Compared against the submitted
+   * query rather than tracked with a flag, so undoing an edit by hand correctly
+   * returns the form to a clean state.
+   */
+  const dirty = useMemo(() => {
+    if (!draftOrigin) return false;
+    if (!submitted) return true;
+    if (!parsedBands.ok) return true;
+
+    return (
+      submitted.origin.lon !== draftOrigin.lon ||
+      submitted.origin.lat !== draftOrigin.lat ||
+      submitted.profile !== draftProfile ||
+      submitted.minutes.join(',') !== parsedBands.values.join(',')
+    );
+  }, [draftOrigin, draftProfile, parsedBands, submitted]);
+
+  useOriginMarker(map, draftOrigin);
+  useIsochroneRender(map, ready, data, visible, renderedBands);
 
   /*
    * Mirror state into the URL.
+   *
+   * This follows the *submitted* query, not the draft. A share link should
+   * always reproduce what is on screen, and mirroring the draft would rewrite
+   * the URL on every keystroke in a minute field.
    *
    * replaceState rather than pushState: every band toggle would otherwise add a
    * history entry, so the back button would step through toggles instead of
@@ -67,10 +124,15 @@ export function App() {
    * is the less surprising behaviour for a single-view tool.
    */
   useEffect(() => {
-    if (!origin) return;
-    const qs = encodeShareState({ origin, profile, minutes: bands, visible });
+    if (!submitted) return;
+    const qs = encodeShareState({
+      origin: submitted.origin,
+      profile: submitted.profile,
+      minutes: submitted.minutes,
+      visible,
+    });
     window.history.replaceState(null, '', `${window.location.pathname}?${qs}`);
-  }, [origin, profile, bands, visible]);
+  }, [submitted, visible]);
 
   /*
    * Guards against out-of-order reverse-geocode results. Two quick map clicks
@@ -87,7 +149,7 @@ export function App() {
 
       // Show the pin immediately; the place name is an upgrade that lands a
       // moment later rather than something to block on.
-      setOrigin({ lon, lat, label: coordLabel });
+      setDraftOrigin({ lon, lat, label: coordLabel });
       setSearchValue(coordLabel);
       setLocationError(null);
 
@@ -98,7 +160,7 @@ export function App() {
       const label = await reverseGeocode(lon, lat, MAPBOX_TOKEN);
       if (seq !== labelSeq.current) return; // superseded
 
-      setOrigin({ lon, lat, label });
+      setDraftOrigin({ lon, lat, label });
       setSearchValue(label);
     },
     [map],
@@ -106,30 +168,70 @@ export function App() {
 
   const handleSelect = useCallback((next: Origin) => {
     labelSeq.current += 1; // invalidate any in-flight reverse geocode
-    setOrigin(next);
+    setDraftOrigin(next);
     setSearchValue(next.label);
     setLocationError(null);
   }, []);
 
-  const handleToggleBand = useCallback((minutes: number) => {
+  const handleToggleBand = useCallback((index: number) => {
     setHidden((prev) => {
       const next = new Set(prev);
-      if (next.has(minutes)) next.delete(minutes);
-      else next.add(minutes);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }, []);
+
+  const handleBandInput = useCallback((index: number, value: string) => {
+    setDraftBands((prev) => prev.map((entry, i) => (i === index ? value : entry)));
+  }, []);
+
+  const handleAddBand = useCallback(() => {
+    setDraftBands((prev) => {
+      const numeric = prev.map(Number).filter((n) => Number.isFinite(n) && n > 0);
+      return [...prev, String(suggestNextBand(numeric))];
+    });
+  }, []);
+
+  const handleRemoveBand = useCallback((index: number) => {
+    setDraftBands((prev) => prev.filter((_, i) => i !== index));
+    // Rows below the removed one shift up, so their hidden flags must too.
+    setHidden((prev) => {
+      const next = new Set<number>();
+      for (const i of prev) {
+        if (i < index) next.add(i);
+        else if (i > index) next.add(i - 1);
+      }
       return next;
     });
   }, []);
 
   const handleProfileChange = useCallback((next: Profile) => {
-    setProfile(next);
-    // Bands are state, so switching profile must explicitly reset them to that
-    // profile's defaults — otherwise values from a shared link would persist
-    // into a mode they were never meant for.
-    setBands(DEFAULT_BANDS[next]);
-    // Hidden minutes refer to the old band values and would hide arbitrary
-    // bands in the new set.
-    setHidden(new Set());
+    setDraftProfile(next);
+    /*
+     * Reset the values to the new profile's defaults: a 60-minute walk is not
+     * a unit most people reason about, and carrying driving numbers into
+     * walking would produce a set nobody chose.
+     *
+     * The hidden set is left alone on purpose. It refers to positions, so
+     * "I don't care about the outermost band" survives the change even though
+     * every number underneath it is different.
+     */
+    setDraftBands(DEFAULT_BANDS[next].map(String));
   }, []);
+
+  const handleSubmit = useCallback(() => {
+    if (!draftOrigin || !parsedBands.ok) return;
+
+    // Submitting sorts the rows, so any hidden flags have to follow them.
+    setHidden((prev) => remapIndices(prev, parsedBands.order));
+    setDraftBands(parsedBands.values.map(String));
+    setSubmitted({
+      origin: draftOrigin,
+      profile: draftProfile,
+      minutes: parsedBands.values,
+    });
+  }, [draftOrigin, draftProfile, parsedBands]);
 
   useMapClick(map, (lon, lat) => {
     void setOriginFromCoords(lon, lat, false);
@@ -170,18 +272,29 @@ export function App() {
       <div ref={containerRef} className="map-container" />
       <ControlPanel
         map={map}
-        origin={origin}
+        origin={draftOrigin}
         searchValue={searchValue}
         onSearchChange={setSearchValue}
         onSelect={handleSelect}
         onUseMyLocation={handleUseMyLocation}
         locating={locating}
         locationError={locationError}
-        profile={profile}
+        profile={draftProfile}
         onProfileChange={handleProfileChange}
-        bands={bands}
-        visible={visible}
+        bandInputs={draftBands}
+        hidden={hidden}
+        onBandInput={handleBandInput}
         onToggleBand={handleToggleBand}
+        onAddBand={handleAddBand}
+        onRemoveBand={handleRemoveBand}
+        bandError={parsedBands.ok ? null : parsedBands.error}
+        // Toggling filters the rendered result, so it only makes sense while the
+        // form still describes what is rendered.
+        canToggle={status.kind === 'success' && !dirty}
+        dirty={dirty}
+        hasSubmitted={submitted !== null}
+        canSubmit={draftOrigin !== null && parsedBands.ok && dirty}
+        onSubmit={handleSubmit}
         status={status}
       />
     </div>
