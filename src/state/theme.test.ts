@@ -5,6 +5,7 @@ import {
   parseThemePreference,
   readStoredPreference,
   resolveTheme,
+  themeActionLabel,
   writeStoredPreference,
 } from './theme';
 
@@ -45,6 +46,27 @@ describe('nextPreference', () => {
 
   it('returns to a known state from a corrupt one', () => {
     expect(nextPreference('sepia' as never)).toBe('system');
+  });
+});
+
+describe('themeActionLabel', () => {
+  it('states where the theme is and where pressing will take it', () => {
+    expect(themeActionLabel('system')).toBe('Theme: following system. Switch to light.');
+    expect(themeActionLabel('light')).toBe('Theme: light. Switch to dark.');
+    expect(themeActionLabel('dark')).toBe('Theme: dark. Switch to system.');
+  });
+
+  it('promises the state the cycle actually produces', () => {
+    /*
+     * The label is the only place the cycle order is written down twice. This
+     * is the assertion that stops a reordering from leaving the button lying
+     * about what it does.
+     */
+    for (const preference of ['system', 'light', 'dark'] as const) {
+      expect(themeActionLabel(preference)).toContain(
+        `Switch to ${nextPreference(preference)}.`,
+      );
+    }
   });
 });
 

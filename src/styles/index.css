@@ -25,6 +25,13 @@
   --switch-off: #c4c7cc;
   --switch-thumb: #ffffff;
   --switch-thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  /*
+   * Tooltips are an inverse surface in both themes — dark chip on a light UI,
+   * light chip on a dark one. That is the one convention strong enough that a
+   * tooltip reads as an overlay rather than as part of the panel.
+   */
+  --tooltip-bg: #202124;
+  --tooltip-text: #ffffff;
   --radius: 10px;
   --panel-width: 344px;
 
@@ -77,6 +84,8 @@
   --switch-off: #5a5d63;
   --switch-thumb: #e8eaed;
   --switch-thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  --tooltip-bg: #e8eaed;
+  --tooltip-text: #202124;
 }
 
 * {
@@ -141,15 +150,18 @@ body {
 @media (max-height: 620px) {
   .panel__body {
     max-height: calc(100vh - 210px);
+    max-height: calc(100dvh - 210px);
     overflow-y: auto;
   }
 }
 
 .panel__header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
+  /* The subtitle used to supply this gap. */
+  margin-bottom: 12px;
 }
 
 .panel__title {
@@ -157,12 +169,6 @@ body {
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.01em;
-}
-
-.panel__subtitle {
-  margin: 2px 0 14px;
-  font-size: 13px;
-  color: var(--text-muted);
 }
 
 .panel__actions {
@@ -226,6 +232,80 @@ body {
 .theme-toggle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/*
+ * Tooltip.
+ *
+ * This replaces a native `title`, which waits about a second before it appears
+ * — long enough that people press an unfamiliar icon to find out what it does
+ * instead of waiting to be told. For the theme button that means an
+ * accidental change to the appearance of the whole app.
+ *
+ * The visible text duplicates the button's `aria-label`, so the span is
+ * `aria-hidden` and this is purely a sighted-pointer affordance.
+ */
+.tooltip-host {
+  position: relative;
+  display: inline-flex;
+}
+
+.tooltip {
+  position: absolute;
+  top: calc(100% + 6px);
+  /*
+   * Anchored to the host's right edge, growing leftwards. The host sits in the
+   * top-right corner of the panel, and on a phone the panel spans the whole
+   * width — a centred or left-anchored tooltip would hang off the screen.
+   */
+  right: 0;
+  z-index: 30;
+  /*
+   * `max-content` up to a cap, rather than `nowrap`: the label is a full
+   * sentence, and a single unbreakable line of it is wider than an iPhone SE.
+   */
+  width: max-content;
+  max-width: 200px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: var(--tooltip-bg);
+  color: var(--tooltip-text);
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  /*
+   * `visibility` as well as `opacity`. A fully transparent element still
+   * answers hit tests, and this one sits directly over the search field.
+   */
+  visibility: hidden;
+  pointer-events: none;
+  /* Fades out, but appears instantly — the whole point of replacing `title`. */
+  transition: opacity 90ms ease, visibility 0s linear 90ms;
+}
+
+/*
+ * Hover only where hovering is a real state. On a touch screen the emulated
+ * hover sticks after a tap, so the tooltip would sit there covering the panel
+ * until something else was pressed.
+ */
+@media (hover: hover) and (pointer: fine) {
+  .tooltip-host:hover .tooltip {
+    opacity: 1;
+    visibility: visible;
+    transition-delay: 0s;
+  }
+}
+
+/*
+ * `:has(:focus-visible)` rather than `:focus-within`, which would also fire on
+ * a mouse click and leave the tooltip up after the button had been pressed.
+ */
+.tooltip-host:has(:focus-visible) .tooltip {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
 }
 
 .panel__field {
@@ -330,13 +410,21 @@ body {
 
 .profiles__btn {
   position: relative;
+  /*
+   * Icon beside the label rather than above it. Stacked, these cost 59px of a
+   * 667px phone screen for two lines of content; side by side they cost 40 and
+   * read the same.
+   */
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  gap: 6px;
+  /* Three words at three widths; none of them may wrap to a second line. */
+  white-space: nowrap;
   font: inherit;
   font-size: 12px;
-  padding: 9px 4px;
+  padding: 10px 4px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
@@ -402,6 +490,19 @@ body {
   margin-bottom: 8px;
 }
 
+/*
+ * Two columns at every width.
+ *
+ * `minmax(0, 1fr)` rather than `1fr`: a grid track's default minimum is
+ * `auto`, which refuses to shrink below its content and would let a long
+ * validation message widen the column and push the second one off the panel.
+ */
+.bands__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 10px;
+}
+
 .bands__row {
   display: flex;
   /*
@@ -411,7 +512,7 @@ body {
    */
   flex-wrap: wrap;
   align-items: center;
-  gap: 9px;
+  gap: 6px;
   padding: 3px 0;
   font-size: 13px;
 }
@@ -487,7 +588,7 @@ body {
 }
 
 .bands__swatch {
-  width: 22px;
+  width: 16px;
   height: 14px;
   flex: none;
   border-radius: 3px;
@@ -501,8 +602,8 @@ body {
    * Sized for three digits. A full-width field would imply free text when the
    * useful range is 1–60.
    */
-  width: 56px;
-  padding: 5px 7px;
+  width: 52px;
+  padding: 5px 6px;
   font: inherit;
   font-size: 13px;
   color: var(--text);
@@ -529,11 +630,11 @@ body {
 .bands__error {
   flex-basis: 100%;
   margin: 0 0 2px;
-  /* Indented past the switch and swatch, so it sits under the field it is
-     talking about rather than under the toggle. */
-  padding-left: 70px;
+  /* Full width of the cell. The old indent past the switch and swatch was
+     worth it in a full-width row; in a half-width one it leaves the message
+     nowhere to go. */
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.35;
   color: var(--danger);
 }
 
@@ -692,10 +793,40 @@ mapbox-search-listbox {
     border-radius: 0 0 var(--radius) var(--radius);
   }
 
-  /* Cap the lower body, never the panel itself — see the note on .panel. */
+  /*
+   * Cap the lower body, never the panel itself — see the note on .panel.
+   *
+   * The cap is a backstop, not a normal state: sized so that a full panel plus
+   * a status line and an inline error still clears it, and only a genuinely
+   * short viewport makes it bite. `dvh` because `vh` on iOS resolves against
+   * the *large* viewport, which measures a sheet taller than what you can see.
+   */
   .panel__body {
-    max-height: 50vh;
+    max-height: 62vh;
+    max-height: min(62dvh, calc(100dvh - 170px));
     overflow-y: auto;
+  }
+
+  /*
+   * Separators cost 29px each — margin, padding and the rule — and there are
+   * four of them. Two thirds of that is legible on a phone.
+   */
+  .panel__section {
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+
+  .panel__origin {
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+
+  /*
+   * 44px, the touch-target floor, bought back with padding. Desktop keeps the
+   * denser 40px, where the pointer is precise and the height is free.
+   */
+  .profiles__btn {
+    padding: 12px 4px;
   }
 
   /*

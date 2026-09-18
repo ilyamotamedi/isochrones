@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  DISMISS_CLICK_MS,
   HAS_VALID_TOKEN,
   INPUT_DEBOUNCE_MS,
   MAPBOX_TOKEN,
@@ -129,6 +130,16 @@ export function App() {
    * sheet — see `fitPaddingFor`.
    */
   const stickyRef = useRef<HTMLDivElement>(null);
+  /*
+   * When the sheet was last dismissed by a tap outside it. Read by the map
+   * click handler to tell "get out of my way" apart from "put the pin here".
+   *
+   * `-Infinity`, not 0. `performance.now()` is measured from page load, so a
+   * seed of 0 means "dismissed at load" — which swallowed every map click in
+   * the first half second of the app's life. The verification harness caught
+   * exactly that.
+   */
+  const dismissedAtRef = useRef(Number.NEGATIVE_INFINITY);
 
   /*
    * Measured, not assumed. The panel's height varies with the length of the
@@ -325,7 +336,47 @@ export function App() {
     [bandInput],
   );
 
+  /*
+   * Tapping outside the open sheet collapses it.
+   *
+   * Capture phase, so the decision is made before anything else handles the
+   * gesture, and `pointerdown` rather than `click`, so the sheet gets out of
+   * the way as the finger lands.
+   *
+   * Deliberately not `preventDefault`: a drag that starts on the map outside
+   * the panel should still pan it. The tap is neutralised afterwards instead,
+   * via the timestamp below.
+   */
+  useEffect(() => {
+    if (collapsed) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (window.innerWidth > MOBILE_BREAKPOINT) return;
+
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (panelRef.current?.contains(target)) return;
+
+      /*
+       * The search suggestions are *not* inside the panel: the listbox is
+       * portaled to <body> so that no ancestor can clip it. Treating a tap on
+       * a suggestion as an outside tap would collapse the sheet, unmount the
+       * listbox and lose the selection before it registered.
+       */
+      if (target.closest('mapbox-search-listbox, [role="listbox"]')) return;
+
+      dismissedAtRef.current = performance.now();
+      setCollapsed(true);
+    };
+
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+  }, [collapsed]);
+
   useMapClick(map, (lon, lat) => {
+    // The tail of a dismiss gesture, not a request to move the pin.
+    if (performance.now() - dismissedAtRef.current < DISMISS_CLICK_MS) return;
+
     void setOriginFromCoords(lon, lat, false);
   });
 

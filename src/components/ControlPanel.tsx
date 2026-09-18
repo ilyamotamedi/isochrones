@@ -81,10 +81,7 @@ export function ControlPanel({
   return (
     <div ref={panelRef} className={collapsed ? 'panel panel--collapsed' : 'panel'}>
       <div className="panel__header">
-        <div>
-          <h1 className="panel__title">isochrones</h1>
-          <p className="panel__subtitle">See how far you can get.</p>
-        </div>
+        <h1 className="panel__title">isochrones</h1>
 
         <div className="panel__actions">
           <ThemeToggle

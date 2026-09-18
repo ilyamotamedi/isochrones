@@ -41,76 +41,82 @@ export function BandEditor({
     <fieldset className="bands">
       <legend className="bands__legend">Travel time</legend>
 
-      {bands.rows.map((row, index) => {
-        const isOn = enabled[index] === true;
-        const isLastOn = isOn && row.minutes !== null && enabledCount === 1;
-        const errorId = row.error ? `band-error-${index}` : undefined;
+      {/*
+        2×2. The rows keep their DOM order, so the grid fills left to right and
+        tab order still runs 1, 2, 3, 4 down the visual reading order.
+      */}
+      <div className="bands__grid">
+        {bands.rows.map((row, index) => {
+          const isOn = enabled[index] === true;
+          const isLastOn = isOn && row.minutes !== null && enabledCount === 1;
+          const errorId = row.error ? `band-error-${index}` : undefined;
 
-        return (
-          // Row identity is positional: the value is being edited, so it cannot
-          // be the key without remounting the input on every keystroke.
-          <div key={index} className="bands__row">
-            <label className="switch">
-              <input
-                type="checkbox"
-                role="switch"
-                className="switch__input"
-                checked={isOn}
-                /*
-                 * Only two reasons to lock a switch: there is nothing drawn to
-                 * filter, or this is the last band standing and turning it off
-                 * would leave an empty map that reads as a bug.
-                 */
-                disabled={!canToggle || isLastOn}
-                onChange={() => onToggle(index)}
+          return (
+            // Row identity is positional: the value is being edited, so it cannot
+            // be the key without remounting the input on every keystroke.
+            <div key={index} className="bands__row">
+              <label className="switch">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  className="switch__input"
+                  checked={isOn}
+                  /*
+                   * Only two reasons to lock a switch: there is nothing drawn to
+                   * filter, or this is the last band standing and turning it off
+                   * would leave an empty map that reads as a bug.
+                   */
+                  disabled={!canToggle || isLastOn}
+                  onChange={() => onToggle(index)}
+                />
+                <span className="switch__track" aria-hidden="true">
+                  <span className="switch__thumb" />
+                </span>
+                <span className="sr-only">
+                  Show the {row.raw || 'empty'} minute band
+                </span>
+              </label>
+
+              <span
+                className="bands__swatch"
+                aria-hidden="true"
+                style={{
+                  backgroundColor:
+                    isOn && row.minutes !== null
+                      ? bandColorAt(bands.rampPosition[index] ?? 0, theme)
+                      : 'var(--swatch-off)',
+                }}
               />
-              <span className="switch__track" aria-hidden="true">
-                <span className="switch__thumb" />
-              </span>
-              <span className="sr-only">
-                Show the {row.raw || 'empty'} minute band
-              </span>
-            </label>
 
-            <span
-              className="bands__swatch"
-              aria-hidden="true"
-              style={{
-                backgroundColor:
-                  isOn && row.minutes !== null
-                    ? bandColorAt(bands.rampPosition[index] ?? 0, theme)
-                    : 'var(--swatch-off)',
-              }}
-            />
+              <input
+                type="number"
+                className={row.error ? 'bands__input bands__input--invalid' : 'bands__input'}
+                value={row.raw}
+                min={MIN_MINUTES}
+                max={MAX_MINUTES}
+                step={1}
+                inputMode="numeric"
+                onChange={(event) => onChangeInput(index, event.target.value)}
+                aria-label={`Travel time ${index + 1} in minutes`}
+                aria-invalid={row.error ? true : undefined}
+                aria-describedby={errorId}
+              />
+              <span className="bands__unit">min</span>
 
-            <input
-              type="number"
-              className={row.error ? 'bands__input bands__input--invalid' : 'bands__input'}
-              value={row.raw}
-              min={MIN_MINUTES}
-              max={MAX_MINUTES}
-              step={1}
-              inputMode="numeric"
-              onChange={(event) => onChangeInput(index, event.target.value)}
-              aria-label={`Travel time ${index + 1} in minutes`}
-              aria-invalid={row.error ? true : undefined}
-              aria-describedby={errorId}
-            />
-            <span className="bands__unit">min</span>
-
-            {/*
-              Per row, not one shared line. Four fixed rows can each be wrong
-              in a different way, and a single message cannot say which box to
-              look at.
-            */}
-            {row.error && (
-              <span className="bands__error" id={errorId} role="alert">
-                {row.error}
-              </span>
-            )}
-          </div>
-        );
-      })}
+              {/*
+                Per row, not one shared line. Four fixed rows can each be wrong
+                in a different way, and a single message cannot say which box to
+                look at.
+              */}
+              {row.error && (
+                <span className="bands__error" id={errorId} role="alert">
+                  {row.error}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </fieldset>
   );
 }

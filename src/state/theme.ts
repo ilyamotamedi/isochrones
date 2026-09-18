@@ -13,12 +13,6 @@ export const THEME_STORAGE_KEY = 'isochrones:theme';
 
 const PREFERENCES: readonly ThemePreference[] = ['system', 'light', 'dark'];
 
-export const THEME_LABEL: Record<ThemePreference, string> = {
-  system: 'Match system',
-  light: 'Light',
-  dark: 'Dark',
-};
-
 /**
  * Interprets whatever is in storage.
  *
@@ -47,6 +41,27 @@ export function resolveTheme(
 export function nextPreference(preference: ThemePreference): ThemePreference {
   const index = PREFERENCES.indexOf(preference);
   return PREFERENCES[(index + 1) % PREFERENCES.length] ?? 'system';
+}
+
+/** How each state reads mid-sentence. */
+const STATE_PHRASE: Record<ThemePreference, string> = {
+  system: 'following system',
+  light: 'light',
+  dark: 'dark',
+};
+
+/**
+ * What the control says it is and what pressing it will do.
+ *
+ * Both halves in one string, because the icon alone carries neither: a monitor
+ * glyph does not announce itself as a theme control, and nothing about it
+ * suggests a three-way cycle.
+ *
+ * The second half is derived from `nextPreference` rather than written out per
+ * state, so reordering the cycle cannot leave the wording lying.
+ */
+export function themeActionLabel(preference: ThemePreference): string {
+  return `Theme: ${STATE_PHRASE[preference]}. Switch to ${nextPreference(preference)}.`;
 }
 
 /**

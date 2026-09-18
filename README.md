@@ -116,6 +116,25 @@ band is the deepest colour, and on dark it is the palest. What carries over is
 the rule, which is that the nearest band should have the most contrast against
 the map beneath it.
 
+## Small screens
+
+Below 640px the panel becomes a sheet pinned to the top of the viewport. It is
+laid out to fit an iPhone SE (375×667) without scrolling: the travel modes are
+a single row of icon-and-label buttons and the four bands are a 2×2 grid.
+
+Choosing a starting point collapses the sheet to its header and search field,
+and so does tapping anywhere outside it. That second gesture is fiddlier than
+it looks. The tap lands on the map, and the map's own click handler reads a
+click as "put the origin here" — so without care one tap would both close the
+sheet and move the pin somewhere nobody chose.
+
+It is handled by ignoring map clicks for `DISMISS_CLICK_MS` after a dismissal
+(see [`src/config.ts`](src/config.ts)) rather than by calling `preventDefault`
+on the pointer event, which would also kill the ability to start a pan outside
+the panel. A time window rather than a one-shot flag, because a tap that turns
+into a drag produces no click at all, and a flag would then eat the next
+genuine tap.
+
 ## API limits worth knowing
 
 These are Mapbox's, not ours, and the UI enforces them:

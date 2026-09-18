@@ -126,6 +126,19 @@ export const MOBILE_BREAKPOINT = 640;
  */
 export const INPUT_DEBOUNCE_MS = 500;
 
+/**
+ * How long after dismissing the mobile sheet a map click is ignored.
+ *
+ * Tapping outside the sheet collapses it and nothing more — the pin stays put.
+ * Enforcing that means swallowing the click that the same tap produces, and a
+ * time window does it without touching the pointer event itself, which would
+ * cost the ability to start a pan outside the panel.
+ *
+ * A window rather than a one-shot flag, because a tap that turns into a drag
+ * produces no click at all and a flag would then eat the *next* genuine tap.
+ */
+export const DISMISS_CLICK_MS = 500;
+
 /** Breathing room between the panel edge and the fitted result. */
 const FIT_GAP = 16;
 /** Clear of the zoom controls, scale bar and attribution. */
