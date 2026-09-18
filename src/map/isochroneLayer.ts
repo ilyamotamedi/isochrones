@@ -4,13 +4,8 @@ import type {
   Map as MapboxMap,
 } from 'mapbox-gl';
 import type { FeatureCollection } from 'geojson';
-import {
-  BAND_COLOR_FAR,
-  BAND_COLOR_NEAR,
-  BAND_FILL_OPACITY,
-  BAND_LINE_COLOR_FAR,
-  BAND_LINE_OPACITY,
-} from '../config';
+import { BAND_PALETTE } from '../config';
+import type { ResolvedTheme } from '../types';
 
 export const ISO_SOURCE = 'isochrone';
 export const ISO_FILL_LAYER = 'isochrone-fill';
@@ -19,25 +14,26 @@ export const ISO_LINE_LAYER = 'isochrone-line';
 const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] };
 
 /**
- * Colour ramp across the active band set: deepest at the nearest contour,
- * palest at the furthest.
+ * Colour ramp across the active band set: most contrast at the nearest
+ * contour, least at the furthest.
  *
  * The domain is rescaled per profile rather than fixed to 0–60, because a
- * walking set peaking at 20 minutes would otherwise occupy only the dark third
- * of the ramp and lose almost all differentiation.
+ * walking set peaking at 20 minutes would otherwise occupy only one third of
+ * the ramp and lose almost all differentiation.
  */
 function colorRamp(
   bands: readonly number[],
+  near: string,
   far: string,
 ): DataDrivenPropertyValueSpecification<string> {
   const min = bands[0];
   const max = bands[bands.length - 1];
 
   if (min === undefined || max === undefined || min === max) {
-    return BAND_COLOR_NEAR;
+    return near;
   }
 
-  return ['interpolate', ['linear'], ['get', 'contour'], min, BAND_COLOR_NEAR, max, far];
+  return ['interpolate', ['linear'], ['get', 'contour'], min, near, max, far];
 }
 
 /**
@@ -46,6 +42,10 @@ function colorRamp(
  *
  * With up to four stacked translucent fills the basemap is already heavily
  * tinted; burying the labels as well makes the result unreadable.
+ *
+ * Re-resolved every time the layers are built, which matters after a theme
+ * switch: `setStyle` replaces the entire layer list, so an id captured from
+ * the old style would be meaningless.
  */
 function firstLabelLayerId(map: MapboxMap): string | undefined {
   const layers = map.getStyle()?.layers;
@@ -60,13 +60,19 @@ function firstLabelLayerId(map: MapboxMap): string | undefined {
 }
 
 /**
- * Creates the source and layers once. Safe to call repeatedly.
+ * Creates the source and layers once per style. Safe to call repeatedly.
  *
  * Updates go through `setIsochroneData` rather than removing and re-adding
  * layers, which would flash and force layer order to be resolved again.
+ *
+ * The early return is keyed on the source still existing, which is exactly
+ * what makes this correct after a theme switch: `setStyle` destroys every
+ * custom source and layer, so the guard falls away and everything is rebuilt.
  */
-export function addIsochroneLayers(map: MapboxMap): void {
+export function addIsochroneLayers(map: MapboxMap, theme: ResolvedTheme): void {
   if (map.getSource(ISO_SOURCE)) return;
+
+  const palette = BAND_PALETTE[theme];
 
   map.addSource(ISO_SOURCE, { type: 'geojson', data: EMPTY });
 
@@ -78,8 +84,8 @@ export function addIsochroneLayers(map: MapboxMap): void {
       type: 'fill',
       source: ISO_SOURCE,
       paint: {
-        'fill-color': BAND_COLOR_NEAR,
-        'fill-opacity': BAND_FILL_OPACITY,
+        'fill-color': palette.near,
+        'fill-opacity': palette.fillOpacity,
       },
       layout: {
         /*
@@ -100,9 +106,9 @@ export function addIsochroneLayers(map: MapboxMap): void {
       type: 'line',
       source: ISO_SOURCE,
       paint: {
-        'line-color': BAND_COLOR_NEAR,
+        'line-color': palette.near,
         'line-width': 1.2,
-        'line-opacity': BAND_LINE_OPACITY,
+        'line-opacity': palette.lineOpacity,
       },
       layout: {
         'line-sort-key': ['-', ['get', 'contour']],
@@ -112,15 +118,27 @@ export function addIsochroneLayers(map: MapboxMap): void {
   );
 }
 
-/** Rescales the colour ramps to the current band values. */
-export function setBandScale(map: MapboxMap, bands: readonly number[]): void {
+/** Rescales the colour ramps to the current band values and theme. */
+export function setBandScale(
+  map: MapboxMap,
+  bands: readonly number[],
+  theme: ResolvedTheme,
+): void {
   if (bands.length === 0) return;
 
+  const palette = BAND_PALETTE[theme];
+
   if (map.getLayer(ISO_FILL_LAYER)) {
-    map.setPaintProperty(ISO_FILL_LAYER, 'fill-color', colorRamp(bands, BAND_COLOR_FAR));
+    map.setPaintProperty(ISO_FILL_LAYER, 'fill-color', colorRamp(bands, palette.near, palette.far));
+    map.setPaintProperty(ISO_FILL_LAYER, 'fill-opacity', palette.fillOpacity);
   }
   if (map.getLayer(ISO_LINE_LAYER)) {
-    map.setPaintProperty(ISO_LINE_LAYER, 'line-color', colorRamp(bands, BAND_LINE_COLOR_FAR));
+    map.setPaintProperty(
+      ISO_LINE_LAYER,
+      'line-color',
+      colorRamp(bands, palette.near, palette.lineFar),
+    );
+    map.setPaintProperty(ISO_LINE_LAYER, 'line-opacity', palette.lineOpacity);
   }
 }
 

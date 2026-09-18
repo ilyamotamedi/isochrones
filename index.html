@@ -13,6 +13,41 @@
     <meta name="theme-color" content="#ffffff" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>isochrones</title>
+    <!--
+      Blocking, inline, and deliberately so.
+
+      React only applies the theme after it mounts, which is long after first
+      paint — so a dark-mode visitor gets a white flash on every single load.
+      The only fix is to set the attribute before the browser paints anything,
+      which means a synchronous script in the head. It is the one place in this
+      codebase where an inline script is the right answer.
+
+      This duplicates the rules in src/state/theme.ts. That duplication is the
+      price of running before the bundle exists; keep the two in step.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('isochrones:theme');
+          var theme =
+            stored === 'light' || stored === 'dark'
+              ? stored
+              : window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light';
+          document.documentElement.dataset.theme = theme;
+          if (theme === 'dark') {
+            document
+              .querySelector('meta[name="theme-color"]')
+              .setAttribute('content', '#1f1f1f');
+          }
+        } catch (e) {
+          // Blocked storage or no matchMedia: light is the safe default, and
+          // the app corrects itself once it mounts.
+          document.documentElement.dataset.theme = 'light';
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -1,16 +1,30 @@
 :root {
+  color-scheme: light;
+
   --panel-bg: #ffffff;
   --panel-shadow: 0 2px 8px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  /* Controls that sit on the panel: fields, buttons, the profile tiles. */
+  --surface: #ffffff;
+  --surface-hover: #f8f9fa;
+  /* Recessed blocks: the status banner, code samples. */
+  --surface-sunken: #f1f3f4;
+  /* Behind the setup notice, the one full-page view. */
+  --backdrop: #f5f5f5;
   --text: #1a1a1a;
   --text-muted: #5f6368;
   --border: #e0e0e0;
   --accent: #1a73e8;
   --accent-contrast: #ffffff;
+  /* Tinted fill for the selected profile. */
+  --accent-subtle: #e8f0fe;
   --danger: #c5221f;
   --danger-bg: #fce8e6;
   /* Swatch for a row that is switched off, and the switch's own off track. */
   --swatch-off: #d6d9de;
+  --swatch-outline: rgba(26, 115, 232, 0.35);
   --switch-off: #c4c7cc;
+  --switch-thumb: #ffffff;
+  --switch-thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   --radius: 10px;
   --panel-width: 344px;
 
@@ -18,6 +32,51 @@
     Arial, sans-serif;
   color: var(--text);
   -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Dark theme.
+ *
+ * A second variable block, not a second stylesheet — which is only possible
+ * because every colour above this point is a variable. `data-theme` is set by
+ * a blocking script in index.html before first paint, so there is no flash.
+ *
+ * Note the surfaces get *lighter* as they come forward, the opposite of the
+ * light theme. Dark UI reads depth by luminance, so a "sunken" panel that is
+ * darker than its parent just looks like a hole.
+ */
+:root[data-theme='dark'] {
+  /*
+   * Tells the browser to render form controls, scrollbars and the number
+   * input's spinners dark. Without it the spinner arrows stay on a white
+   * chip inside an otherwise dark field.
+   */
+  color-scheme: dark;
+
+  --panel-bg: #242528;
+  --panel-shadow: 0 2px 10px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --surface: #2e3033;
+  --surface-hover: #393b3f;
+  --surface-sunken: #1c1d20;
+  --backdrop: #141517;
+  --text: #e8eaed;
+  --text-muted: #9aa0a6;
+  --border: #3f4145;
+  /*
+   * Lifted from #1a73e8. The light-theme blue fails contrast against a dark
+   * panel, and is the colour used for focus rings and active states where
+   * that matters most.
+   */
+  --accent: #8ab4f8;
+  --accent-contrast: #16232f;
+  --accent-subtle: #2b3b53;
+  --danger: #f28b82;
+  --danger-bg: #3d2523;
+  --swatch-off: #4a4d52;
+  --swatch-outline: rgba(138, 180, 248, 0.4);
+  --switch-off: #5a5d63;
+  --switch-thumb: #e8eaed;
+  --switch-thumb-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
 * {
@@ -106,6 +165,14 @@ body {
   color: var(--text-muted);
 }
 
+.panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  margin: -4px -4px 0 0;
+}
+
 /*
  * Hidden by default and revealed only at mobile widths. Above the breakpoint
  * the panel is a small card with the map beside it, so there is nothing for
@@ -118,7 +185,6 @@ body {
   height: 32px;
   place-items: center;
   padding: 0;
-  margin: -4px -4px 0 0;
   color: var(--text-muted);
   background: transparent;
   border: 0;
@@ -131,7 +197,33 @@ body {
   height: 22px;
 }
 
-.panel__collapse:focus-visible {
+.theme-toggle {
+  flex: none;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  padding: 0;
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.theme-toggle svg {
+  width: 19px;
+  height: 19px;
+}
+
+.theme-toggle:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.panel__collapse:focus-visible,
+.theme-toggle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -194,7 +286,7 @@ body {
   font-size: 13px;
   border-radius: 6px;
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--surface);
   color: var(--text);
   padding: 7px 12px;
   cursor: pointer;
@@ -202,7 +294,7 @@ body {
 }
 
 .btn:hover:not(:disabled) {
-  background: #f8f9fa;
+  background: var(--surface-hover);
 }
 
 .btn:disabled {
@@ -247,7 +339,7 @@ body {
   padding: 9px 4px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--surface);
   color: var(--text-muted);
   cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
@@ -259,12 +351,12 @@ body {
 }
 
 .profiles__btn:hover {
-  background: #f8f9fa;
+  background: var(--surface-hover);
 }
 
 .profiles__btn--active {
   border-color: var(--accent);
-  background: #e8f0fe;
+  background: var(--accent-subtle);
   color: var(--accent);
   font-weight: 500;
 }
@@ -368,8 +460,8 @@ body {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  background: var(--switch-thumb);
+  box-shadow: var(--switch-thumb-shadow);
   transition: transform 120ms ease;
 }
 
@@ -400,7 +492,7 @@ body {
   flex: none;
   border-radius: 3px;
   /* Outline keeps very faint swatches visible against white. */
-  box-shadow: inset 0 0 0 1px rgba(26, 115, 232, 0.35);
+  box-shadow: inset 0 0 0 1px var(--swatch-outline);
   transition: background-color 120ms ease;
 }
 
@@ -416,7 +508,7 @@ body {
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--surface);
 }
 
 .bands__input:focus-visible {
@@ -453,7 +545,7 @@ body {
   line-height: 1.45;
   padding: 9px 11px;
   border-radius: 6px;
-  background: #f1f3f4;
+  background: var(--surface-sunken);
   color: var(--text-muted);
 }
 
@@ -496,6 +588,58 @@ body {
   font-size: 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
+}
+
+/* --- mapbox-gl's own controls in dark --- */
+
+/*
+ * These ship light-only. Left alone they are white chips sitting on a dark
+ * basemap, which looks like a rendering bug rather than a design.
+ */
+:root[data-theme='dark'] .mapboxgl-ctrl-group {
+  background: var(--surface);
+}
+
+:root[data-theme='dark'] .mapboxgl-ctrl-group button + button {
+  border-top-color: var(--border);
+}
+
+:root[data-theme='dark'] .mapboxgl-ctrl-group button:not(:disabled):hover {
+  background: var(--surface-hover);
+}
+
+/*
+ * The +/- glyphs and the attribution "i" are near-black background SVGs baked
+ * into the library's stylesheet. There is no dark variant to swap in and no
+ * way to recolour a background image, so inverting is the only option.
+ */
+:root[data-theme='dark'] .mapboxgl-ctrl-icon,
+:root[data-theme='dark'] .mapboxgl-ctrl-attrib-button {
+  filter: invert(1) brightness(1.3);
+}
+
+:root[data-theme='dark'] .mapboxgl-ctrl-attrib {
+  background: rgba(28, 29, 32, 0.8);
+}
+
+:root[data-theme='dark'] .mapboxgl-ctrl-attrib,
+:root[data-theme='dark'] .mapboxgl-ctrl-attrib a {
+  color: var(--text-muted);
+}
+
+:root[data-theme='dark'] .mapboxgl-ctrl-scale {
+  background: rgba(28, 29, 32, 0.7);
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+
+/*
+ * The wordmark is a background SVG too. Inverting keeps it legible, which is
+ * what the attribution terms actually require — it must stay visible, not stay
+ * a particular colour.
+ */
+:root[data-theme='dark'] .mapboxgl-ctrl-logo {
+  filter: invert(1) brightness(1.5);
 }
 
 /*
@@ -613,7 +757,7 @@ mapbox-search-listbox {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: #f5f5f5;
+  background: var(--backdrop);
 }
 
 .setup-notice__card {
@@ -642,7 +786,7 @@ mapbox-search-listbox {
 }
 
 .setup-notice__card pre {
-  background: #f1f3f4;
+  background: var(--surface-sunken);
   padding: 12px 14px;
   border-radius: 6px;
   overflow-x: auto;

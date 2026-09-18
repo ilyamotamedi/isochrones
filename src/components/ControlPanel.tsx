@@ -5,8 +5,15 @@ import { ProfileSelector } from './ProfileSelector';
 import { BandEditor } from './BandEditor';
 import { StatusBanner } from './StatusBanner';
 import { ShareButton } from './ShareButton';
+import { ThemeToggle } from './ThemeToggle';
 import type { BandState } from '../state/bandEditor';
-import type { Origin, Profile, QueryStatus } from '../types';
+import type {
+  Origin,
+  Profile,
+  QueryStatus,
+  ResolvedTheme,
+  ThemePreference,
+} from '../types';
 
 interface ControlPanelProps {
   panelRef: RefObject<HTMLDivElement | null>;
@@ -38,6 +45,9 @@ interface ControlPanelProps {
   /** Something has been requested, so there is a link worth sharing. */
   hasResult: boolean;
   status: QueryStatus;
+  themePreference: ThemePreference;
+  theme: ResolvedTheme;
+  onCycleTheme: () => void;
 }
 
 export function ControlPanel({
@@ -64,6 +74,9 @@ export function ControlPanel({
   stale,
   hasResult,
   status,
+  themePreference,
+  theme,
+  onCycleTheme,
 }: ControlPanelProps) {
   return (
     <div ref={panelRef} className={collapsed ? 'panel panel--collapsed' : 'panel'}>
@@ -73,30 +86,38 @@ export function ControlPanel({
           <p className="panel__subtitle">See how far you can get.</p>
         </div>
 
-        {/*
-          Mobile only — hidden by CSS above the breakpoint, where the panel is
-          a small card with the map beside it and there is nothing to get out
-          of the way of.
-        */}
-        <button
-          type="button"
-          className="panel__collapse"
-          onClick={onToggleCollapsed}
-          aria-expanded={!collapsed}
-          aria-controls="panel-body"
-        >
-          <span className="sr-only">{collapsed ? 'Show controls' : 'Hide controls'}</span>
-          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path
-              d={collapsed ? 'M7 10l5 5 5-5' : 'M7 14l5-5 5 5'}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
+        <div className="panel__actions">
+          <ThemeToggle
+            preference={themePreference}
+            resolved={theme}
+            onCycle={onCycleTheme}
+          />
+
+          {/*
+            Mobile only — hidden by CSS above the breakpoint, where the panel is
+            a small card with the map beside it and there is nothing to get out
+            of the way of.
+          */}
+          <button
+            type="button"
+            className="panel__collapse"
+            onClick={onToggleCollapsed}
+            aria-expanded={!collapsed}
+            aria-controls="panel-body"
+          >
+            <span className="sr-only">{collapsed ? 'Show controls' : 'Hide controls'}</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path
+                d={collapsed ? 'M7 10l5 5 5-5' : 'M7 14l5-5 5 5'}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/*
@@ -112,6 +133,7 @@ export function ControlPanel({
           value={searchValue}
           onChange={onSearchChange}
           onSelect={onSelect}
+          theme={theme}
         />
       </div>
 
@@ -158,6 +180,7 @@ export function ControlPanel({
             onToggle={onToggleBand}
             canToggle={canToggle}
             enabledCount={enabledCount}
+            theme={theme}
           />
 
           {stale && (

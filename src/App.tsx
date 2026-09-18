@@ -13,6 +13,7 @@ import { useIsochroneRender } from './map/useIsochroneRender';
 import { prefersReducedMotion } from './map/motion';
 import { useIsochroneQuery } from './state/useIsochroneQuery';
 import { useDebouncedValue } from './state/useDebouncedValue';
+import { useTheme } from './state/useTheme';
 import { encodeShareState, parseShareState } from './state/urlState';
 import {
   enabledValidCount,
@@ -79,7 +80,15 @@ function sameQuery(a: IsochroneQuery | null, b: IsochroneQuery | null): boolean 
 
 export function App() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { map, ready } = useMapboxMap(containerRef);
+
+  /*
+   * Read before the map is constructed, because the basemap style is chosen at
+   * construction time. Switching afterwards works, but starting on the wrong
+   * one would mean a visible restyle on every load in dark mode.
+   */
+  const { preference: themePreference, resolved: theme, cycle: cycleTheme } = useTheme();
+
+  const { map, ready, styleEpoch, styleReady } = useMapboxMap(containerRef, theme);
 
   /*
    * One source of truth per input, no draft/submitted split. The map follows
@@ -180,7 +189,17 @@ export function App() {
   }, [queryBands, enabled, renderedBands]);
 
   useOriginMarker(map, origin);
-  useIsochroneRender(map, ready, data, visible, renderedBands, getFitPadding);
+  useIsochroneRender(
+    map,
+    ready,
+    data,
+    visible,
+    renderedBands,
+    theme,
+    styleEpoch,
+    styleReady,
+    getFitPadding,
+  );
 
   /*
    * Mirror state into the URL.
@@ -372,6 +391,9 @@ export function App() {
         stale={draftBands.requestMinutes.length === 0 && query !== null}
         hasResult={query !== null}
         status={status}
+        themePreference={themePreference}
+        theme={theme}
+        onCycleTheme={cycleTheme}
       />
     </div>
   );

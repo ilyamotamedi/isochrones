@@ -1,5 +1,6 @@
 import { bandColorAt } from '../config';
 import { MAX_MINUTES, MIN_MINUTES, type BandState } from '../state/bandEditor';
+import type { ResolvedTheme } from '../types';
 
 interface BandEditorProps {
   bands: BandState;
@@ -13,6 +14,8 @@ interface BandEditorProps {
    * How many rows are both usable and on. The last one cannot be switched off.
    */
   enabledCount: number;
+  /** The swatch ramp inverts between themes, so it has to be passed in. */
+  theme: ResolvedTheme;
 }
 
 /**
@@ -32,6 +35,7 @@ export function BandEditor({
   onToggle,
   canToggle,
   enabledCount,
+  theme,
 }: BandEditorProps) {
   return (
     <fieldset className="bands">
@@ -74,7 +78,7 @@ export function BandEditor({
               style={{
                 backgroundColor:
                   isOn && row.minutes !== null
-                    ? bandColorAt(bands.rampPosition[index] ?? 0)
+                    ? bandColorAt(bands.rampPosition[index] ?? 0, theme)
                     : 'var(--swatch-off)',
               }}
             />

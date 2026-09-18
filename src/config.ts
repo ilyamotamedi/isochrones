@@ -6,6 +6,8 @@
  * message rather than a cryptic 401 from deep inside mapbox-gl.
  */
 
+import type { ResolvedTheme } from './types';
+
 const rawToken = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined;
 
 export const MAPBOX_TOKEN: string = typeof rawToken === 'string' ? rawToken.trim() : '';
@@ -19,7 +21,34 @@ export const HAS_VALID_TOKEN: boolean = MAPBOX_TOKEN.startsWith('pk.');
  */
 export const TOKEN_IS_SECRET: boolean = MAPBOX_TOKEN.startsWith('sk.');
 
-export const MAP_STYLE = 'mapbox://styles/mapbox/light-v11';
+/**
+ * Basemap per theme.
+ *
+ * Both are classic styles with an enumerable layer list, which is what makes
+ * the `beforeId` label ordering in `isochroneLayer` work. Do not "upgrade"
+ * these to the v3 Standard style: it uses slots instead, and the fills would
+ * silently start drawing over street names.
+ */
+export const MAP_STYLE: Record<ResolvedTheme, string> = {
+  light: 'mapbox://styles/mapbox/light-v11',
+  dark: 'mapbox://styles/mapbox/dark-v11',
+};
+
+export interface BandPalette {
+  /** Colour of the nearest contour. */
+  near: string;
+  /** Colour of the furthest contour. */
+  far: string;
+  /**
+   * Outlines use their own, deliberately narrower ramp.
+   *
+   * Reusing the fill ramp drew the outermost contour in the palest colour,
+   * which is exactly the boundary a reader looks for first.
+   */
+  lineFar: string;
+  fillOpacity: number;
+  lineOpacity: number;
+}
 
 /**
  * Band styling.
@@ -29,26 +58,33 @@ export const MAP_STYLE = 'mapbox://styles/mapbox/light-v11';
  * single hue — verified against a real render, it produced almost no visible
  * difference between the four bands.
  *
- * So colour now carries the signal: a ramp from a deep blue at the nearest
- * band to a pale blue at the furthest. Stacking still deepens the centre, but
- * it is reinforcing the ramp rather than doing all the work.
+ * So colour carries the signal, and the relationship **inverts between
+ * themes**: on a light basemap the nearest band is the deepest blue, and on a
+ * dark one it is the brightest. Both amount to "nearest has the most contrast
+ * against the map", which is the property that actually matters; copying the
+ * light ramp onto dark would make the near band vanish and the far band glow.
  *
  * The ramp domain is the band set itself, not a fixed 0–60, because walking
- * tops out at 20 minutes and would otherwise sit entirely in the dark end.
+ * tops out at 20 minutes and would otherwise sit entirely in one end.
  */
-export const BAND_COLOR_NEAR = '#174ea6';
-export const BAND_COLOR_FAR = '#a8c7fa';
-export const BAND_FILL_OPACITY = 0.3;
-
-/**
- * Outlines use their own, deliberately narrower ramp.
- *
- * Reusing the fill ramp drew the outermost contour in the palest colour, which
- * is exactly the boundary a reader looks for first. Holding the far end at a
- * mid blue keeps every edge crisp while still ordering the bands by tone.
- */
-export const BAND_LINE_COLOR_FAR = '#4285f4';
-export const BAND_LINE_OPACITY = 0.8;
+export const BAND_PALETTE: Record<ResolvedTheme, BandPalette> = {
+  light: {
+    near: '#174ea6',
+    far: '#a8c7fa',
+    lineFar: '#4285f4',
+    fillOpacity: 0.3,
+    lineOpacity: 0.8,
+  },
+  dark: {
+    near: '#d2e3fc',
+    far: '#3c6bb8',
+    lineFar: '#8ab4f8',
+    // Slightly heavier: a dark basemap gives translucent fills less to react
+    // against, so the same opacity reads as weaker than it does on light.
+    fillOpacity: 0.34,
+    lineOpacity: 0.85,
+  },
+};
 
 function hexToRgb(hex: string): [number, number, number] {
   const n = Number.parseInt(hex.slice(1), 16);
@@ -59,9 +95,10 @@ function hexToRgb(hex: string): [number, number, number] {
  * JS mirror of the map's colour ramp, so legend swatches match what is drawn.
  * `t` is 0 at the nearest band and 1 at the furthest.
  */
-export function bandColorAt(t: number): string {
-  const near = hexToRgb(BAND_COLOR_NEAR);
-  const far = hexToRgb(BAND_COLOR_FAR);
+export function bandColorAt(t: number, theme: ResolvedTheme): string {
+  const palette = BAND_PALETTE[theme];
+  const near = hexToRgb(palette.near);
+  const far = hexToRgb(palette.far);
   const clamped = Math.min(1, Math.max(0, t));
   const mix = near.map((c, i) => Math.round(c + ((far[i] ?? c) - c) * clamped));
   return `rgb(${mix[0]}, ${mix[1]}, ${mix[2]})`;

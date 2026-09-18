@@ -2,6 +2,16 @@ import type { FeatureCollection } from 'geojson';
 
 /** Core domain types. */
 
+/**
+ * What the user asked for. `system` follows the OS and is the default — a
+ * colour scheme is something an operating system already knows about the
+ * person, and asking again is a worse first impression than just matching.
+ */
+export type ThemePreference = 'system' | 'light' | 'dark';
+
+/** What `system` actually resolves to, and what the CSS and map key off. */
+export type ResolvedTheme = 'light' | 'dark';
+
 export type Profile = 'walking' | 'cycling' | 'driving';
 
 export const PROFILES: readonly Profile[] = ['walking', 'cycling', 'driving'] as const;
