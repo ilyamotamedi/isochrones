@@ -139,6 +139,24 @@ export const INPUT_DEBOUNCE_MS = 500;
  */
 export const DISMISS_CLICK_MS = 500;
 
+/**
+ * How long the panel sits collapsed before it points out its own caret.
+ *
+ * The panel starts collapsed on a phone, which buys a view of the map at the
+ * cost of hiding the travel times and the mode buttons behind a caret that
+ * looks like decoration. The hint is the repayment.
+ *
+ * Long enough to stay out of the way of someone who has already started
+ * typing, short enough to still be on screen for someone who is looking at the
+ * map wondering where the settings went. It is also pre-empted by the first
+ * map tap, which is the clearest signal that someone is exploring rather than
+ * reading.
+ */
+export const CARET_HINT_DELAY_MS = 4000;
+
+/** How long the hint stays up if nothing dismisses it sooner. */
+export const CARET_HINT_DURATION_MS = 6000;
+
 /** Breathing room between the panel edge and the fitted result. */
 const FIT_GAP = 16;
 /** Clear of the zoom controls, scale bar and attribution. */

@@ -23,6 +23,8 @@ interface ControlPanelProps {
    */
   stickyRef: RefObject<HTMLDivElement | null>;
   collapsed: boolean;
+  /** Whether to point out the caret. Mobile only; see `useCaretHint`. */
+  caretHint: boolean;
   onToggleCollapsed: () => void;
   map: MapboxMap | null;
   origin: Origin | null;
@@ -54,6 +56,7 @@ export function ControlPanel({
   panelRef,
   stickyRef,
   collapsed,
+  caretHint,
   onToggleCollapsed,
   map,
   origin,
@@ -95,25 +98,49 @@ export function ControlPanel({
             a small card with the map beside it and there is nothing to get out
             of the way of.
           */}
-          <button
-            type="button"
-            className="panel__collapse"
-            onClick={onToggleCollapsed}
-            aria-expanded={!collapsed}
-            aria-controls="panel-body"
-          >
-            <span className="sr-only">{collapsed ? 'Show controls' : 'Hide controls'}</span>
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path
-                d={collapsed ? 'M7 10l5 5 5-5' : 'M7 14l5-5 5 5'}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
+          <span className="tooltip-host panel__collapse-host">
+            <button
+              type="button"
+              className="panel__collapse"
+              onClick={onToggleCollapsed}
+              aria-expanded={!collapsed}
+              aria-controls="panel-body"
+            >
+              <span className="sr-only">{collapsed ? 'Show controls' : 'Hide controls'}</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path
+                  d={collapsed ? 'M7 10l5 5 5-5' : 'M7 14l5-5 5 5'}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+
+            {/*
+              The hint, and the same span the theme toggle uses for its tooltip
+              — so it inherits the hover and focus behaviour for free and only
+              needs the extra class to be shown unprompted.
+
+              Kept to one line on purpose. It hangs below the header and
+              therefore over the search field, and the two-line version covered
+              the field completely for the six seconds it was up. Naming what
+              is inside does the job; the caret it is attached to says where.
+
+              `aria-hidden`, like the other tooltip: the button already says
+              "Show controls", which is plainer than this is, and a screen
+              reader arriving at the header meets that directly rather than
+              needing to be told the caret is there.
+            */}
+            <span
+              className={caretHint ? 'tooltip tooltip--shown' : 'tooltip'}
+              aria-hidden="true"
+            >
+              Travel times and modes
+            </span>
+          </span>
         </div>
       </div>
 

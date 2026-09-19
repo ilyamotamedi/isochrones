@@ -15,6 +15,7 @@ import { prefersReducedMotion } from './map/motion';
 import { useIsochroneQuery } from './state/useIsochroneQuery';
 import { useDebouncedValue } from './state/useDebouncedValue';
 import { useTheme } from './state/useTheme';
+import { useCaretHint } from './state/useCaretHint';
 import { encodeShareState, parseShareState } from './state/urlState';
 import {
   enabledValidCount,
@@ -121,8 +122,17 @@ export function App() {
    * Mobile only, enforced in CSS. The panel is a top sheet below the
    * breakpoint and covers most of a phone screen, so it needs a way out of
    * the way; on desktop it is a small card with the map beside it.
+   *
+   * It starts collapsed on a phone. Opening onto a full-height panel puts the
+   * controls first and the map — the thing the app is for — out of sight, and
+   * every path to a result (search, pin, map tap) collapses the sheet anyway,
+   * so the expanded state was a stop on the way out rather than a destination.
+   *
+   * Evaluated once, not tracked. A phone that is rotated mid-session keeps
+   * whatever state the person has since chosen, which is the polite reading of
+   * a rotation; re-collapsing on every resize would fight a deliberate open.
    */
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => window.innerWidth <= MOBILE_BREAKPOINT);
   const panelRef = useRef<HTMLDivElement>(null);
   /*
    * The header plus the search field: everything that stays on screen when the
@@ -140,6 +150,13 @@ export function App() {
    * exactly that.
    */
   const dismissedAtRef = useRef(Number.NEGATIVE_INFINITY);
+
+  /*
+   * The caret is the only way back to the settings once the sheet is
+   * collapsed, and on arrival it is a small chevron with nothing to say for
+   * itself. This points at it once, and then never again.
+   */
+  const { visible: caretHint, reveal: revealCaretHint } = useCaretHint(collapsed);
 
   /*
    * Measured, not assumed. The panel's height varies with the length of the
@@ -377,6 +394,13 @@ export function App() {
     // The tail of a dismiss gesture, not a request to move the pin.
     if (performance.now() - dismissedAtRef.current < DISMISS_CLICK_MS) return;
 
+    /*
+     * Someone tapping the map is exploring, which makes this the best moment
+     * to mention that the rest of the controls are behind the caret — better
+     * than the timer, which fires whether or not anyone is paying attention.
+     */
+    revealCaretHint();
+
     void setOriginFromCoords(lon, lat, false);
   });
 
@@ -418,6 +442,7 @@ export function App() {
         panelRef={panelRef}
         stickyRef={stickyRef}
         collapsed={collapsed}
+        caretHint={caretHint}
         onToggleCollapsed={() => setCollapsed((prev) => !prev)}
         map={map}
         origin={origin}

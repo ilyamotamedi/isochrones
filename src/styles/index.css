@@ -189,7 +189,21 @@ body {
  * Hidden by default and revealed only at mobile widths. Above the breakpoint
  * the panel is a small card with the map beside it, so there is nothing for
  * collapsing to reveal.
+ *
+ * The caret and the span carrying its hint have to be hidden together —
+ * leaving the wrapper behind would put an empty inline-flex box in the header,
+ * which `gap` would then space as if it were a third control.
+ *
+ * Qualified by the parent, and it has to be: the wrapper also carries
+ * `.tooltip-host`, which sets `display: inline-flex` and is declared further
+ * down this file. Two single-class rules, so source order would decide, and
+ * the wrapper would win. This is the one place a tooltip host is hidden, so
+ * the extra specificity lives here rather than in the shared rule.
  */
+.panel__actions .panel__collapse-host {
+  display: none;
+}
+
 .panel__collapse {
   display: none;
   flex: none;
@@ -312,6 +326,20 @@ body {
   opacity: 1;
   visibility: visible;
   transition-delay: 0s;
+}
+
+/*
+ * Shown because the app decided to, not because anything was pointed at.
+ *
+ * Slower in than the hover tooltips. Those are answering a question that has
+ * just been asked, so instant is right; this one arrives unannounced, and
+ * something appearing out of nothing at the edge of vision reads as a glitch.
+ * Reduced motion collapses this to nothing via the global rule.
+ */
+.tooltip--shown {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 220ms ease, visibility 0s;
 }
 
 .panel__field {
@@ -484,13 +512,29 @@ body {
  * same thing twice. It is stated once now, next to the pin it describes.
  */
 .origin-popup .mapboxgl-popup-content {
-  padding: 5px 9px;
+  padding: 6px 10px;
   font-size: 12px;
   line-height: 1.35;
   color: var(--text);
   background: var(--panel-bg);
-  border-radius: 6px;
-  box-shadow: var(--panel-shadow);
+  /*
+   * Rounder than the panel's controls. This one floats free on the map with
+   * nothing to line up against, and at this size a 6px radius on a wide, short
+   * box reads as a rectangle with the corners filed off.
+   */
+  border-radius: 10px;
+  /*
+   * A hairline as well as a shadow. The chip is near-white on light, and the
+   * basemap underneath it is also near-white — a shadow alone leaves the top
+   * edge dissolving into the map.
+   */
+  border: 1px solid var(--border);
+  /*
+   * Softer and shorter than the panel's. The panel is a surface the map slides
+   * under; this is a small thing resting just above it, and the panel's shadow
+   * at this size looks like a drop shadow in a slide deck.
+   */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
   /* Long addresses wrap inside maxWidth rather than stretching the bubble. */
   overflow-wrap: anywhere;
 }
@@ -509,12 +553,20 @@ body {
   pointer-events: none;
 }
 
-/* The tip has to be recoloured separately; it is a border trick, not a fill. */
+/*
+ * No connector. A speech-bubble tail pointing at a pin that is already
+ * unmistakable adds a hard diagonal edge to an otherwise soft shape, and at
+ * this size it reads as blocky.
+ *
+ * `visibility`, not `display`. The tip is a flex item in the popup, and its
+ * box is what holds the label clear of the pin — the per-anchor offsets in
+ * `useOriginMarker` are mapbox's own numbers, calculated on the assumption
+ * that it is there. Removing it from the layout would drop the label onto the
+ * marker's head and invalidate all eight of them; hiding it leaves the
+ * geometry untouched and turns the tail into the gap.
+ */
 .origin-popup .mapboxgl-popup-tip {
-  border-top-color: var(--panel-bg);
-  border-bottom-color: var(--panel-bg);
-  border-left-color: var(--panel-bg);
-  border-right-color: var(--panel-bg);
+  visibility: hidden;
 }
 
 /* --- Buttons --- */
@@ -1034,6 +1086,11 @@ mapbox-search-listbox {
 
   .switch__input:checked + .switch__track .switch__thumb {
     transform: translateX(16px);
+  }
+
+  /* Matches the specificity of the rule that hides this above the breakpoint. */
+  .panel__actions .panel__collapse-host {
+    display: inline-flex;
   }
 
   .panel__collapse {

@@ -125,6 +125,12 @@ Three things about that label are easy to get wrong:
   default would close the label on the very gesture that should move it.
   `focusAfterOpen` must be off too, or every reverse geocode yanks focus out of
   the search field.
+- **The tail is hidden with `visibility`, not `display`.** There is no
+  speech-bubble connector — it added a hard diagonal to an otherwise soft shape
+  — but the tip's *box* is what holds the label clear of the pin. The offsets
+  above are mapbox's own numbers and assume it is there, so taking it out of
+  the layout would drop the label onto the marker's head and invalidate all
+  eight of them.
 
 The placeholder is short for a measured reason. Google's full phrasing,
 "Choose a starting point, or click the map", renders at 293px, and the field is
@@ -166,6 +172,25 @@ unreadable in exactly the state you type in.
 Below 640px the panel becomes a sheet pinned to the top of the viewport. It is
 laid out to fit an iPhone SE (375×667) without scrolling: the travel modes are
 a single row of icon-and-label buttons and the four bands are a 2×2 grid.
+
+It arrives collapsed. Opening onto a full-height panel puts the controls first
+and the map out of sight, and since every way of setting an origin collapses
+the sheet anyway, the open state was a stop on the way out rather than a
+destination. On an SE that is 118px of panel and 549px of map on arrival.
+
+The cost is that the travel times are now behind a chevron that says nothing
+about itself, so the chevron introduces itself once — after four seconds, or
+on the first tap of the map, whichever comes first. It holds off while the
+search field has focus, because it hangs directly over that field and covering
+the suggestion list with an advert for a button is worse than saying nothing.
+Shown once ever, remembered in `localStorage`.
+
+> [!NOTE]
+> That flag fails in the opposite direction to the theme preference: if
+> storage throws, [`caretHint.ts`](src/state/caretHint.ts) reports the hint as
+> already seen. A theme that forgets itself is a small annoyance each visit,
+> but a hint that cannot record having been shown would return on every single
+> load, forever, for exactly the people who cannot clear it.
 
 Choosing a starting point collapses the sheet to its header and search field,
 and so does tapping anywhere outside it. That second gesture is fiddlier than
