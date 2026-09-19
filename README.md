@@ -99,6 +99,43 @@ A few decisions worth knowing about if you are changing this code:
   effects rebuild afterwards; without it the contours would vanish on a theme
   switch, because none of their own inputs changed.
 
+## Choosing a starting point
+
+There are three ways to set one — type an address, press the pin to use your
+own location, or click the map — and one control says so: a search field with
+the pin joined to its right edge, placeholder "Search, or click the map".
+
+The origin is named **once**, on a label beside the pin on the map. The panel
+used to repeat it in a row underneath the field, which said the same thing
+twice and cost 72px of a 667px-tall phone.
+
+Three things about that label are easy to get wrong:
+
+- **It is not attached with `Marker.setPopup()`.** That helper puts
+  `role="button"` on the marker and binds click-to-toggle, which turns a
+  passive pin into a control sitting in the middle of a map where a click is
+  supposed to mean "put the origin here". The `Popup` is created and moved
+  alongside the `Marker` instead, in
+  [`src/map/useOriginMarker.ts`](src/map/useOriginMarker.ts).
+- **`pointer-events: none` has to land on `.mapboxgl-popup-content`.** Mapbox's
+  stylesheet already sets it on `.mapboxgl-popup` and then sets `auto` back on
+  the content, so styling the root looks right and does nothing — leaving a
+  dead patch of map over the current origin that swallows clicks.
+- **`closeOnClick` must be off.** A map click sets a *new* origin, so the
+  default would close the label on the very gesture that should move it.
+  `focusAfterOpen` must be off too, or every reverse geocode yanks focus out of
+  the search field.
+
+The placeholder is short for a measured reason. Google's full phrasing,
+"Choose a starting point, or click the map", renders at 293px, and the field is
+217px wide on an iPhone SE once the pin is carved out of it. The long version
+is kept as the input's accessible name, where width does not apply.
+
+That accessible name takes a `MutationObserver`.
+`<mapbox-search-box>` copies its placeholder into the input's `aria-label` and
+exposes no prop to override it, and it rewrites the attribute on its own
+schedule — so the observer has to stay connected rather than fire once.
+
 ## Theming
 
 Light and dark, following the system by default. The toggle in the panel
@@ -134,6 +171,12 @@ on the pointer event, which would also kill the ability to start a pan outside
 the panel. A time window rather than a one-shot flag, because a tap that turns
 into a drag produces no click at all, and a flag would then eat the next
 genuine tap.
+
+The pin button rides along in that sticky region, so all three ways of setting
+an origin stay reachable with the sheet shut. The geolocation error message
+lives there too, for the same reason: it is raised by a button that can be
+pressed while collapsed, and an error rendered in the hidden part of the panel
+would fail silently.
 
 ## API limits worth knowing
 

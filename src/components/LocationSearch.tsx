@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { SearchBox } from '@mapbox/search-js-react';
 import type { SearchBoxRetrieveResponse } from '@mapbox/search-js-core';
@@ -13,6 +13,9 @@ interface LocationSearchProps {
   onSelect: (origin: Origin) => void;
   theme: ResolvedTheme;
 }
+
+/** The field's name, as distinct from the hint shown inside it. */
+const ARIA_LABEL = 'Choose a starting point';
 
 const FONT_STACK =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
@@ -82,22 +85,72 @@ export function LocationSearch({ map, value, onChange, onSelect, theme }: Locati
   // which would have it recompute its shadow styles for no reason.
   const searchTheme = useMemo(() => ({ variables: SEARCH_THEME[theme] }), [theme]);
 
+  const hostRef = useRef<HTMLDivElement>(null);
+
+  /*
+   * Give the input a name that says what it is for.
+   *
+   * The component copies the placeholder into `aria-label` and exposes no prop
+   * to separate the two. That was fine while the placeholder was "Choose a
+   * starting point", but the placeholder is now a hint — and "Search, or click
+   * the map" is a poor name for a field, not least because clicking the map is
+   * not an instruction a screen reader user can act on.
+   *
+   * The observer has to persist rather than disconnect on first success. The
+   * first version of this applied the label and stopped, and the component
+   * simply wrote the placeholder back over it during its own render, which the
+   * harness caught. Watching the attribute and re-applying is the only version
+   * that holds.
+   *
+   * It cannot loop: setting the attribute re-enters the callback, which finds
+   * the value already correct and does nothing.
+   */
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+
+    const apply = () => {
+      const input = host.querySelector('input');
+      if (!input || input.getAttribute('aria-label') === ARIA_LABEL) return;
+      input.setAttribute('aria-label', ARIA_LABEL);
+    };
+
+    apply();
+
+    const observer = new MutationObserver(apply);
+    observer.observe(host, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['aria-label'],
+    });
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <SearchBox
-      accessToken={MAPBOX_TOKEN}
-      // Passing the map gives proximity-biased results and recentres on
-      // selection, so the choice is acknowledged immediately rather than the
-      // UI sitting still until the isochrone request returns.
-      map={map ?? undefined}
-      mapboxgl={mapboxgl}
-      // We render our own marker so it survives across queries.
-      marker={false}
-      value={value}
-      onChange={onChange}
-      onRetrieve={handleRetrieve}
-      placeholder="Choose a starting point"
-      options={{ language: 'en', limit: 6 }}
-      theme={searchTheme}
-    />
+    <div className="origin-field__search" ref={hostRef}>
+      <SearchBox
+        accessToken={MAPBOX_TOKEN}
+        // Passing the map gives proximity-biased results and recentres on
+        // selection, so the choice is acknowledged immediately rather than the
+        // UI sitting still until the isochrone request returns.
+        map={map ?? undefined}
+        mapboxgl={mapboxgl}
+        // We render our own marker so it survives across queries.
+        marker={false}
+        value={value}
+        onChange={onChange}
+        onRetrieve={handleRetrieve}
+        /*
+         * Measured, not guessed. At 375px the field has ~217px of room once the
+         * pin button is carved out, and "Choose a starting point, or click the
+         * map" renders 293px wide — it would be clipped mid-word at every
+         * width, desktop included. This says the same two things in 175px.
+         */
+        placeholder="Search, or click the map"
+        options={{ language: 'en', limit: 6 }}
+        theme={searchTheme}
+      />
+    </div>
   );
 }

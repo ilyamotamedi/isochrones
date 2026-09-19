@@ -1,6 +1,6 @@
 import type { Map as MapboxMap } from 'mapbox-gl';
 import type { RefObject } from 'react';
-import { LocationSearch } from './LocationSearch';
+import { OriginField } from './OriginField';
 import { ProfileSelector } from './ProfileSelector';
 import { BandEditor } from './BandEditor';
 import { StatusBanner } from './StatusBanner';
@@ -118,18 +118,21 @@ export function ControlPanel({
       </div>
 
       {/*
-        The search field stays outside `.panel__body`: its suggestions dropdown
+        The origin field stays outside `.panel__body`: its suggestions dropdown
         must never sit inside a scrollable ancestor or it gets clipped.
 
         It also stays visible when collapsed — a collapsed panel that cannot
         start a new search would just be a title bar.
       */}
       <div className="panel__field" ref={stickyRef}>
-        <LocationSearch
+        <OriginField
           map={map}
           value={searchValue}
           onChange={onSearchChange}
           onSelect={onSelect}
+          onUseMyLocation={onUseMyLocation}
+          locating={locating}
+          locationError={locationError}
           theme={theme}
         />
       </div>
@@ -140,32 +143,7 @@ export function ControlPanel({
         silent no-op at best and a page reload at worst.
       */}
       <div className="panel__body" id="panel-body">
-        <div className="panel__row">
-          <button
-            type="button"
-            className="btn btn--subtle"
-            onClick={onUseMyLocation}
-            disabled={locating}
-          >
-            {locating ? 'Locating…' : 'Use my location'}
-          </button>
-          <span className="panel__hint">or click the map</span>
-        </div>
-
-        {locationError && <p className="panel__error">{locationError}</p>}
-
-        {origin && (
-          <div className="panel__origin">
-            <span className="panel__origin-dot" aria-hidden="true" />
-            {/*
-              Rendered as text. This value can originate from a share link, so it
-              must never be injected as HTML.
-            */}
-            <span className="panel__origin-label">{origin.label}</span>
-          </div>
-        )}
-
-        <div className="panel__section">
+        <div className="panel__section panel__section--first">
           <ProfileSelector value={profile} onChange={onProfileChange} />
         </div>
 

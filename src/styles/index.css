@@ -33,6 +33,12 @@
   --tooltip-bg: #202124;
   --tooltip-text: #ffffff;
   --radius: 10px;
+  /*
+   * The origin field's radius. Duplicated as `borderRadius` in SEARCH_THEME,
+   * because the search web component styles itself from JS and cannot read
+   * custom properties. Change one, change the other.
+   */
+  --radius-sm: 8px;
   --panel-width: 344px;
 
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica,
@@ -312,15 +318,121 @@ body {
   margin-bottom: 10px;
 }
 
-.panel__row {
+/* --- Origin field: search box and "use my location", joined --- */
+
+/*
+ * One control, two elements.
+ *
+ * The search box is a custom element with no shadow root, so its internals are
+ * reachable — but only via class names carrying a build-specific hash
+ * (`mbx090af614--…`), which would break on an upgrade. Everything below is
+ * therefore addressed structurally: the wrapper is the host's only child, and
+ * the input is the only input. Neither depends on a generated name.
+ */
+.origin-field__combo {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: stretch;
 }
 
-.panel__hint {
-  font-size: 12px;
+.origin-field__search {
+  /*
+   * `min-width: 0` is load-bearing. A flex item defaults to `min-width: auto`,
+   * which refuses to shrink below its content — the field would hold its width
+   * and shove the button out past the edge of the panel.
+   */
+  flex: 1;
+  min-width: 0;
+}
+
+/* Square off the edge the two controls share, and drop the doubled border. */
+.origin-field__search mapbox-search-box > div {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  border-right: 0;
+}
+
+.pin-btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  padding: 0;
   color: var(--text-muted);
+  background: var(--surface);
+  /*
+   * Must match the search component's own border, which is set in JS from a
+   * hardcoded hex — the web component cannot read custom properties. See
+   * SEARCH_THEME in LocationSearch.tsx; the two have to stay in step.
+   */
+  border: 1px solid var(--border);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.pin-btn svg {
+  width: 20px;
+  height: 20px;
+  /* Both icons occupy the same cell; only one is ever visible. */
+  grid-area: 1 / 1;
+}
+
+.pin-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.pin-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  /*
+   * Inset, not offset. An outward ring on a control butted against the search
+   * field would be clipped on the shared edge and look lopsided.
+   */
+  outline-offset: -2px;
+}
+
+.pin-btn:disabled {
+  cursor: default;
+  color: var(--text-muted);
+}
+
+.pin-btn__spinner {
+  display: none;
+  transform-origin: 50% 50%;
+  animation: pin-spin 900ms linear infinite;
+}
+
+.pin-btn[aria-busy='true'] .pin-btn__pin {
+  display: none;
+}
+
+.pin-btn[aria-busy='true'] .pin-btn__spinner {
+  display: block;
+}
+
+@keyframes pin-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/*
+ * Reduced motion needs a real fallback here, not just a slower spin.
+ *
+ * The global rule below forces `animation-duration: 0.01ms !important`, which
+ * does not stop a spinner — it finishes one rotation instantly and then sits
+ * still. A frozen spinner reads as a hung app, which is the opposite of what
+ * it is meant to say. So show the pin instead, dimmed, and let `aria-busy`
+ * and the changed label carry the state.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .pin-btn[aria-busy='true'] .pin-btn__spinner {
+    display: none;
+  }
+
+  .pin-btn[aria-busy='true'] .pin-btn__pin {
+    display: block;
+    opacity: 0.45;
+  }
 }
 
 .panel__error {
@@ -333,30 +445,44 @@ body {
   border-radius: 6px;
 }
 
-.panel__origin {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-  font-size: 13px;
-  line-height: 1.4;
-}
+/* --- Origin label on the map --- */
 
-.panel__origin-dot {
-  flex: 0 0 auto;
-  width: 8px;
-  height: 8px;
-  margin-top: 5px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
-.panel__origin-label {
-  color: var(--text-muted);
-  /* Long addresses must wrap rather than widen or overflow the panel. */
+/*
+ * The panel used to repeat the origin under the search field, which said the
+ * same thing twice. It is stated once now, next to the pin it describes.
+ */
+.origin-popup .mapboxgl-popup-content {
+  padding: 5px 9px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text);
+  background: var(--panel-bg);
+  border-radius: 6px;
+  box-shadow: var(--panel-shadow);
+  /* Long addresses wrap inside maxWidth rather than stretching the bubble. */
   overflow-wrap: anywhere;
+}
+
+/*
+ * Never take a click.
+ *
+ * Mapbox's own stylesheet puts `pointer-events: none` on `.mapboxgl-popup` and
+ * then `auto` back on `.mapboxgl-popup-content`, so the rule has to land on
+ * the content — setting it on the root looks right and does nothing. Without
+ * this there is a dead patch of map sitting over the current origin: click it
+ * to move the pin a short distance and nothing happens.
+ */
+.origin-popup .mapboxgl-popup-content,
+.origin-popup .mapboxgl-popup-tip {
+  pointer-events: none;
+}
+
+/* The tip has to be recoloured separately; it is a border trick, not a fill. */
+.origin-popup .mapboxgl-popup-tip {
+  border-top-color: var(--panel-bg);
+  border-bottom-color: var(--panel-bg);
+  border-left-color: var(--panel-bg);
+  border-right-color: var(--panel-bg);
 }
 
 /* --- Buttons --- */
@@ -393,6 +519,17 @@ body {
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--border);
+}
+
+/*
+ * The topmost section sits directly under the origin field, which is already
+ * a hard visual edge. A rule and 28px of space there separated nothing from
+ * nothing, so the field's own bottom margin now supplies the whole gap.
+ */
+.panel__section--first {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
 /* --- Profile selector --- */
@@ -816,9 +953,15 @@ mapbox-search-listbox {
     padding-top: 10px;
   }
 
-  .panel__origin {
-    margin-top: 10px;
-    padding-top: 10px;
+  /*
+   * 44px for the whole combo. The search box sizes itself from its input, so
+   * both halves need the floor independently — set it on one only and the
+   * shared edge stops lining up.
+   */
+  .origin-field__search mapbox-search-box > div,
+  .origin-field__search input,
+  .pin-btn {
+    min-height: 44px;
   }
 
   /*
