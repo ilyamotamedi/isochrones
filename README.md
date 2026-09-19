@@ -153,6 +153,14 @@ band is the deepest colour, and on dark it is the palest. What carries over is
 the rule, which is that the nearest band should have the most contrast against
 the map beneath it.
 
+The search field is the one thing the theme object cannot colour. `colorText`
+in `SEARCH_THEME` reaches the suggestion list but not the input, which keeps
+the component's built-in light defaults — on dark, text at 1.48:1 and a
+placeholder at 2.87:1. Both are set from CSS instead. If you touch that rule,
+keep the `:focus` selector: the component styles the input twice, and the
+focus rule is the more specific of the two, so dropping it leaves the text
+unreadable in exactly the state you type in.
+
 ## Small screens
 
 Below 640px the panel becomes a sheet pinned to the top of the viewport. It is

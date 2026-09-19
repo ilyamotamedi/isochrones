@@ -350,6 +350,38 @@ body {
   border-right: 0;
 }
 
+/*
+ * Colour the text you type, and the hint behind it.
+ *
+ * `colorText` in SEARCH_THEME does not reach the input. It themes the
+ * suggestion list and stops there — the input keeps the component's built-in
+ * light-mode defaults, `rgba(0, 0, 0, 0.75)` on text and `#757575` on the
+ * placeholder. Against the dark field those measure 1.48:1 and 2.87:1, so on
+ * dark the address you just typed was very nearly invisible while the list
+ * offering it was crisp.
+ *
+ * The `:focus` selector is not decoration. The component ships both
+ * `.…--Input` and `.…--Input:focus`, each setting the same colour, and the
+ * second is specificity (0,2,0) — enough to beat a rule that only handles the
+ * plain state. Miss it and the bug survives in the one state that matters,
+ * because typing focuses the field: the text is legible right up until you
+ * click into it.
+ *
+ * Two elements plus a class outranks their single class; adding `:focus`
+ * matches their pseudo-class and keeps the element count as the tiebreak. No
+ * `!important` needed either way.
+ */
+.origin-field__search mapbox-search-box input,
+.origin-field__search mapbox-search-box input:focus {
+  color: var(--text);
+}
+
+.origin-field__search mapbox-search-box input::placeholder {
+  /* Subordinate to real input, but still legible: 5.0:1 on dark, 5.9:1 on light. */
+  color: var(--text-muted);
+  opacity: 1; /* Firefox dims placeholders by default, which would undo the above. */
+}
+
 .pin-btn {
   flex: none;
   display: grid;

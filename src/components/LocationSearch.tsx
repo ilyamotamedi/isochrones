@@ -25,6 +25,11 @@ const FONT_STACK =
  * object, so it cannot see the stylesheet's custom properties. These values
  * therefore have to duplicate the ones in index.css — keep them in step, or
  * the search field becomes a white slab in a dark panel.
+ *
+ * `colorText` is not the whole story: it colours the suggestion list but not
+ * the input, which keeps the component's light-mode default no matter what is
+ * set here. The input and its placeholder are coloured from CSS instead — see
+ * `.origin-field__search mapbox-search-box input` in index.css.
  */
 const SEARCH_THEME: Record<ResolvedTheme, Record<string, string>> = {
   light: {
