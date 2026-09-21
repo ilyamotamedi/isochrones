@@ -1,4 +1,5 @@
 import type { Map as MapboxMap } from 'mapbox-gl';
+import type { RefObject } from 'react';
 import { LocationSearch } from './LocationSearch';
 import type { Origin, ResolvedTheme } from '../types';
 
@@ -8,6 +9,11 @@ interface OriginFieldProps {
   onChange: (value: string) => void;
   onSelect: (origin: Origin) => void;
   onUseMyLocation: () => void;
+  /**
+   * Where focus lands when the map label is cleared away underneath it. See
+   * `handleClear` in App for why this button and not the search field.
+   */
+  pinButtonRef: RefObject<HTMLButtonElement | null>;
   locating: boolean;
   locationError: string | null;
   theme: ResolvedTheme;
@@ -38,6 +44,7 @@ export function OriginField({
   onChange,
   onSelect,
   onUseMyLocation,
+  pinButtonRef,
   locating,
   locationError,
   theme,
@@ -57,6 +64,7 @@ export function OriginField({
 
         <span className="tooltip-host">
           <button
+            ref={pinButtonRef}
             type="button"
             className="pin-btn"
             onClick={onUseMyLocation}

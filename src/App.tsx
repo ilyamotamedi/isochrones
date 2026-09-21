@@ -141,6 +141,21 @@ export function App() {
    */
   const stickyRef = useRef<HTMLDivElement>(null);
   /*
+   * The pin button, which is where focus goes when the map label is cleared.
+   * See `handleClear`.
+   */
+  const pinButtonRef = useRef<HTMLButtonElement>(null);
+  /*
+   * Guards against out-of-order reverse-geocode results. Two quick map clicks
+   * can resolve in either order, and without this the first click's place name
+   * can overwrite the second's, leaving the label describing a point the marker
+   * is no longer on.
+   *
+   * Declared up here with the other refs because `handleClear` bumps it, and
+   * that has to be defined before `useOriginMarker` consumes it.
+   */
+  const labelSeq = useRef(0);
+  /*
    * When the sheet was last dismissed by a tap outside it. Read by the map
    * click handler to tell "get out of my way" apart from "put the pin here".
    *
@@ -216,7 +231,45 @@ export function App() {
     return shown.length > 0 ? shown : renderedBands;
   }, [queryBands, enabled, renderedBands]);
 
-  useOriginMarker(map, origin);
+  /*
+   * Take the pin, the isochrones and the address off the map.
+   *
+   * Only those. The travel mode and the band times are settings the user
+   * chose, not results — resetting them would turn "clear this result" into
+   * "undo my session", and there is no way to get them back.
+   *
+   * Everything downstream follows from the two nulls: `useOriginMarker` has a
+   * null-origin branch that removes the marker and the label, a null query
+   * puts `useIsochroneQuery` back to idle, and `useIsochroneRender` clears its
+   * layers when the data goes away. The URL is handled by the mirror effect.
+   *
+   * Defined here, above `useOriginMarker`, rather than down with the other
+   * handlers: `const` is not hoisted, so passing it to a hook that runs
+   * earlier in the body is a ReferenceError on the first render.
+   */
+  const handleClear = useCallback(() => {
+    /*
+     * Move focus first, while the button that has it still exists. The state
+     * update below unmounts the label, and focus on a detached node falls to
+     * `<body>` — which strands anyone navigating by keyboard.
+     *
+     * The pin button rather than the search field, which is the more obvious
+     * choice and the wrong one: focusing a text input raises the soft keyboard
+     * on a phone, so tidying the map would immediately cover it. It also
+     * behaves the same on every platform, whereas a rule conditioned on the ×
+     * having focus would differ between iOS Safari, which does not focus
+     * buttons on tap, and Android Chrome, which does.
+     */
+    pinButtonRef.current?.focus();
+
+    labelSeq.current += 1; // a reverse geocode in flight must not re-set it
+    setOrigin(null);
+    setQuery(null);
+    setSearchValue('');
+    setLocationError(null);
+  }, []);
+
+  useOriginMarker(map, origin, handleClear);
   useIsochroneRender(
     map,
     ready,
@@ -230,6 +283,15 @@ export function App() {
   );
 
   /*
+   * Whether the URL currently carries state we put there.
+   *
+   * Without this, the branch below would strip the query string on every cold
+   * start — including one that has just been handed a share link and not yet
+   * produced its first query.
+   */
+  const hadQueryRef = useRef(query !== null);
+
+  /*
    * Mirror state into the URL.
    *
    * This follows the query rather than the draft, so a link always reproduces
@@ -241,7 +303,20 @@ export function App() {
    * is the less surprising behaviour for a single-view tool.
    */
   useEffect(() => {
-    if (!query) return;
+    if (!query) {
+      /*
+       * Cleared. The origin has to come out of the URL as well as off the map,
+       * or the two disagree: reloading would bring the pin back, and a link
+       * copied earlier would still resolve to a place the app is no longer
+       * showing.
+       */
+      if (!hadQueryRef.current) return;
+      hadQueryRef.current = false;
+      window.history.replaceState(null, '', window.location.pathname);
+      return;
+    }
+
+    hadQueryRef.current = true;
     const qs = encodeShareState({
       origin: query.origin,
       profile: query.profile,
@@ -250,14 +325,6 @@ export function App() {
     });
     window.history.replaceState(null, '', `${window.location.pathname}?${qs}`);
   }, [query, visible]);
-
-  /*
-   * Guards against out-of-order reverse-geocode results. Two quick map clicks
-   * can resolve in either order, and without this the first click's place name
-   * can overwrite the second's, leaving the label describing a point the marker
-   * is no longer on.
-   */
-  const labelSeq = useRef(0);
 
   /*
    * On a phone the panel covers most of the screen, so choosing a location and
@@ -450,6 +517,7 @@ export function App() {
         onSearchChange={setSearchValue}
         onSelect={handleSelect}
         onUseMyLocation={handleUseMyLocation}
+        pinButtonRef={pinButtonRef}
         locating={locating}
         locationError={locationError}
         profile={profile}

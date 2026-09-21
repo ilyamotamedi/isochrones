@@ -132,6 +132,44 @@ Three things about that label are easy to get wrong:
   the layout would drop the label onto the marker's head and invalidate all
   eight of them.
 
+### Clearing it
+
+The label carries a × that removes the origin, the isochrones, the text in the
+search field, and the state in the URL. It leaves the travel mode and the band
+times alone: those are settings, not results, and resetting them would turn
+"clear this result" into "undo my session".
+
+Mapbox's own `closeButton` is deliberately not used for this. It removes the
+popup and nothing else, which would leave the pin and its contours on the map
+with nothing left to say what they refer to.
+
+Two things here are easier to get wrong than they look:
+
+- **The click is stopped from reaching the map, as insurance rather than as a
+  fix.** The worry is that pressing × clears the origin and then sets a new one
+  where the button was. It does not, and the reason is worth knowing:
+  `Popup.addTo` appends to `map.getContainer()`, while mapbox binds its
+  interaction handlers to the *canvas* container inside it, so the button is
+  not a descendant of the thing listening. Measured with the guard removed:
+  zero `click` events reach the map. The `stopPropagation` stays because that
+  mount point is mapbox's internal choice rather than a promise, and because
+  the regression would be near-invisible — a pin landing a few pixels from
+  where it already was. Never `preventDefault`, which would stop the button
+  taking focus.
+- **The label is assembled as DOM, never as a markup string.** The name can
+  arrive from `?q=`, so it is attacker-controlled. It goes into its own `span`
+  via `textContent`; there is no `innerHTML` in
+  [`useOriginMarker.ts`](src/map/useOriginMarker.ts) and there must not be.
+
+The × is a 30px target inside a 30px chip, which it manages with negative
+margins: it keeps its full size for hit-testing while contributing only the
+text's own height to the layout. That is under the 44px guideline, and the
+deliberate tradeoff is keeping the chip from doubling in height.
+
+Pressing it moves focus to the pin button, chosen over the search field — which
+is the more obvious destination and the wrong one, because focusing a text
+input raises the soft keyboard, so tidying the map would immediately cover it.
+
 The placeholder is short for a measured reason. Google's full phrasing,
 "Choose a starting point, or click the map", renders at 293px, and the field is
 217px wide on an iPhone SE once the pin is carved out of it. The long version

@@ -32,6 +32,9 @@ interface ControlPanelProps {
   onSearchChange: (value: string) => void;
   onSelect: (origin: Origin) => void;
   onUseMyLocation: () => void;
+  /** Handed to the pin button, so clearing the map label has somewhere to put
+   * focus once the button it was on has gone. */
+  pinButtonRef: RefObject<HTMLButtonElement | null>;
   locating: boolean;
   locationError: string | null;
   profile: Profile;
@@ -64,6 +67,7 @@ export function ControlPanel({
   onSearchChange,
   onSelect,
   onUseMyLocation,
+  pinButtonRef,
   locating,
   locationError,
   profile,
@@ -158,6 +162,7 @@ export function ControlPanel({
           onChange={onSearchChange}
           onSelect={onSelect}
           onUseMyLocation={onUseMyLocation}
+          pinButtonRef={pinButtonRef}
           locating={locating}
           locationError={locationError}
           theme={theme}
