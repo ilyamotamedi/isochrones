@@ -6,6 +6,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Re-deploying after a secret or a Mapbox token restriction changes needs no
+  # code change, so it should not need an empty commit either.
+  workflow_dispatch:
 
 jobs:
   # Whether this repository can deploy at all.
@@ -100,7 +103,7 @@ jobs:
 
   live:
     if: >-
-      github.event_name == 'push' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       github.ref == 'refs/heads/main' &&
       needs.credentials.outputs.deployable == 'true'
     needs: [credentials, build]
