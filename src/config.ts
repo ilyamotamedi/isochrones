@@ -157,6 +157,19 @@ export const CARET_HINT_DELAY_MS = 4000;
 /** How long the hint stays up if nothing dismisses it sooner. */
 export const CARET_HINT_DURATION_MS = 6000;
 
+/**
+ * The latest analytics may start, in milliseconds after mount.
+ *
+ * Analytics is scheduled on an idle callback so that downloading the SDK does
+ * not compete with the first screen of map tiles for bandwidth or main-thread
+ * time. On a busy page idle may never arrive, so this is the deadline that
+ * forces it — and the plain delay used where `requestIdleCallback` is missing.
+ *
+ * Long enough to be well clear of the initial render, short enough that a
+ * visitor who leaves quickly is still counted.
+ */
+export const ANALYTICS_START_TIMEOUT_MS = 3000;
+
 /** Breathing room between the panel edge and the fitted result. */
 const FIT_GAP = 16;
 /** Clear of the zoom controls, scale bar and attribution. */

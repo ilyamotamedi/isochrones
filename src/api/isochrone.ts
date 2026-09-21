@@ -5,14 +5,53 @@ export const MAX_CONTOURS = 4;
 export const MAX_MINUTES = 60;
 const ISOCHRONE_BASE = 'https://api.mapbox.com/isochrone/v1';
 
+/**
+ * Why a request failed, in a form that is safe to aggregate.
+ *
+ * Separate from the message because the message is prose written for one
+ * person in one moment: it gets reworded, and two of them are passed straight
+ * through from Mapbox. A code is stable, low-cardinality, and — unlike a
+ * message — carries nothing about where the user was asking about.
+ */
+export type IsochroneErrorCode =
+  | 'bad_longitude'
+  | 'bad_latitude'
+  | 'no_minutes'
+  | 'token_rejected'
+  | 'token_forbidden'
+  | 'profile_unsupported'
+  | 'invalid_request'
+  | 'rate_limited'
+  | 'server_error'
+  | 'http_error'
+  | 'malformed_response'
+  | 'no_segment'
+  | 'no_route'
+  | 'no_area'
+  | 'network';
+
 /** An error already phrased for display to the user. */
 export class IsochroneError extends Error {
+  /** Stable identifier for the failure. See `IsochroneErrorCode`. */
+  readonly code: IsochroneErrorCode;
+
   /** Whether offering a "try again" action makes sense. */
   readonly retryable: boolean;
 
-  constructor(message: string, retryable: boolean, options?: { cause?: unknown }) {
+  /*
+   * Code first, deliberately. It is the argument most easily forgotten and the
+   * one with no sensible default, so putting it where it cannot be omitted is
+   * worth the slightly odd reading order at the call sites.
+   */
+  constructor(
+    code: IsochroneErrorCode,
+    message: string,
+    retryable: boolean,
+    options?: { cause?: unknown },
+  ) {
     super(message, options);
     this.name = 'IsochroneError';
+    this.code = code;
     this.retryable = retryable;
   }
 }
@@ -47,17 +86,17 @@ export function buildIsochroneUrl(query: IsochroneQuery, token: string): string 
   const { origin, profile, minutes } = query;
 
   if (!Number.isFinite(origin.lon) || origin.lon < -180 || origin.lon > 180) {
-    throw new IsochroneError('That longitude is outside the valid range.', false);
+    throw new IsochroneError('bad_longitude', 'That longitude is outside the valid range.', false);
   }
   // The API's own bound is ±90. The tighter ±85 Mercator limit is applied when
   // parsing share links, where the concern is displayability rather than validity.
   if (!Number.isFinite(origin.lat) || origin.lat < -90 || origin.lat > 90) {
-    throw new IsochroneError('That latitude is outside the valid range.', false);
+    throw new IsochroneError('bad_latitude', 'That latitude is outside the valid range.', false);
   }
 
   const contours = normaliseMinutes(minutes);
   if (contours.length === 0) {
-    throw new IsochroneError('Pick at least one travel time.', false);
+    throw new IsochroneError('no_minutes', 'Pick at least one travel time.', false);
   }
 
   const mapboxProfile = MAPBOX_PROFILE[profile];
@@ -81,6 +120,7 @@ function messageFor(status: number, body: unknown): IsochroneError {
   switch (status) {
     case 401:
       return new IsochroneError(
+        'token_rejected',
         'Map service unavailable — the access token was rejected.',
         false,
       );
@@ -88,23 +128,25 @@ function messageFor(status: number, body: unknown): IsochroneError {
       // Also fires when a token's URL restrictions exclude the current origin,
       // which is the confusing case worth naming in the console.
       return new IsochroneError(
+        'token_forbidden',
         'Map service unavailable — this token is not allowed on this site.',
         false,
       );
     case 404:
-      return new IsochroneError('That travel mode is not supported.', false);
+      return new IsochroneError('profile_unsupported', 'That travel mode is not supported.', false);
     case 422:
       return new IsochroneError(
+        'invalid_request',
         apiMessage || 'Those search settings are not valid.',
         false,
       );
     case 429:
-      return new IsochroneError('Too many requests. Try again in a moment.', true);
+      return new IsochroneError('rate_limited', 'Too many requests. Try again in a moment.', true);
     default:
       if (status >= 500) {
-        return new IsochroneError('Mapbox is having trouble. Try again.', true);
+        return new IsochroneError('server_error', 'Mapbox is having trouble. Try again.', true);
       }
-      return new IsochroneError(apiMessage || 'Something went wrong.', true);
+      return new IsochroneError('http_error', apiMessage || 'Something went wrong.', true);
   }
 }
 
@@ -123,7 +165,7 @@ export function parseIsochroneResponse(status: number, body: unknown): FeatureCo
   }
 
   if (!isRecord(body)) {
-    throw new IsochroneError('Unexpected response from Mapbox.', true);
+    throw new IsochroneError('malformed_response', 'Unexpected response from Mapbox.', true);
   }
 
   const features = Array.isArray(body.features) ? body.features : null;
@@ -138,17 +180,20 @@ export function parseIsochroneResponse(status: number, body: unknown): FeatureCo
 
     if (code === 'NoSegment' || apiMessage.includes('matching segment')) {
       throw new IsochroneError(
+        'no_segment',
         "We couldn't find any roads near that location. Try a point closer to a street.",
         false,
       );
     }
     if (code === 'NoRoute' || apiMessage.toLowerCase().includes('no route')) {
       throw new IsochroneError(
+        'no_route',
         "There's nowhere reachable from that location by this travel mode.",
         false,
       );
     }
     throw new IsochroneError(
+      'no_area',
       "We couldn't work out a travel area for that location.",
       false,
     );
@@ -173,9 +218,12 @@ export async function fetchIsochrone(
   } catch (error) {
     // Let cancellation propagate untouched; the caller distinguishes it from failure.
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
-    throw new IsochroneError('Network error. Check your connection and try again.', true, {
-      cause: error,
-    });
+    throw new IsochroneError(
+      'network',
+      'Network error. Check your connection and try again.',
+      true,
+      { cause: error },
+    );
   }
 
   // Server errors can return HTML rather than JSON, so a parse failure here is

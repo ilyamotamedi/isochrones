@@ -15,3 +15,11 @@ coverage
 .idea
 .vscode/*
 !.vscode/extensions.json
+
+# Firebase CLI scratch: deploy caches, emulator state and debug logs. The
+# config that matters — firebase.json, .firebaserc, firestore.rules — is
+# committed on purpose.
+.firebase/
+firebase-debug.log*
+firestore-debug.log*
+.runtimeconfig.json

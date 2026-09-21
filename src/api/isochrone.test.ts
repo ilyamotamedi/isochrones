@@ -141,4 +141,38 @@ describe('parseIsochroneResponse', () => {
     const body = { message: 'contours_minutes must be an integer between 1 and 60' };
     expect(() => parseIsochroneResponse(422, body)).toThrow(/between 1 and 60/);
   });
+
+  /*
+   * Codes, not messages, are what gets aggregated — in analytics and in
+   * whatever logs come later. Messages are prose and are expected to change;
+   * these are the contract, so they are pinned separately.
+   *
+   * The two routing failures matter most. They are the cases a user can
+   * actually cause, they arrive as HTTP 200, and telling them apart is the
+   * difference between "people are clicking in the sea" and "people are asking
+   * for walking routes on islands".
+   */
+  it('gives each failure a stable code', () => {
+    const codeFor = (status: number, body: unknown): string => {
+      try {
+        parseIsochroneResponse(status, body);
+        expect.unreachable();
+      } catch (e) {
+        return (e as IsochroneError).code;
+      }
+      return '';
+    };
+
+    expect(codeFor(200, { code: 'NoSegment' })).toBe('no_segment');
+    expect(codeFor(200, { code: 'NoRoute' })).toBe('no_route');
+    expect(codeFor(200, { features: [] })).toBe('no_area');
+    expect(codeFor(401, {})).toBe('token_rejected');
+    expect(codeFor(403, {})).toBe('token_forbidden');
+    expect(codeFor(404, {})).toBe('profile_unsupported');
+    expect(codeFor(422, {})).toBe('invalid_request');
+    expect(codeFor(429, {})).toBe('rate_limited');
+    expect(codeFor(503, null)).toBe('server_error');
+    expect(codeFor(418, null)).toBe('http_error');
+    expect(codeFor(200, null)).toBe('malformed_response');
+  });
 });

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { track } from '../analytics';
 
 interface ShareButtonProps {
   disabled: boolean;
@@ -27,6 +28,13 @@ export function ShareButton({ disabled }: ShareButtonProps) {
     try {
       if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable');
       await navigator.clipboard.writeText(url);
+
+      /*
+       * Only on this path. The fallback below shows the link for the user to
+       * copy by hand, which is not the same event — counting it would report a
+       * success rate the feature has not earned.
+       */
+      track({ name: 'share_copied' });
 
       setManualUrl(null);
       setCopied(true);

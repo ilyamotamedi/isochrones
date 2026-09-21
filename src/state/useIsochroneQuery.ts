@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { MAPBOX_TOKEN } from '../config';
 import { IsochroneError, fetchIsochrone, normaliseMinutes } from '../api/isochrone';
+import { track } from '../analytics';
 import type { IsochroneQuery, QueryStatus } from '../types';
 
 /**
@@ -62,10 +63,19 @@ export function useIsochroneQuery(query: IsochroneQuery | null): QueryStatus {
         if (controller.signal.aborted) return;
         if (seq !== seqRef.current) return;
 
+        /*
+         * Recorded here rather than in the component, because this is the only
+         * place that sees each failure exactly once. Both guards above run
+         * first on purpose: a cancelled or superseded request is a normal
+         * consequence of typing, not an error, and counting it would make the
+         * failure rate a measure of how fast people type.
+         */
         if (error instanceof IsochroneError) {
+          track({ name: 'isochrone_error', code: error.code, retryable: error.retryable });
           setStatus({ kind: 'error', message: error.message, retryable: error.retryable });
           return;
         }
+        track({ name: 'isochrone_error', code: 'unknown', retryable: true });
         setStatus({ kind: 'error', message: 'Something went wrong.', retryable: true });
       });
 

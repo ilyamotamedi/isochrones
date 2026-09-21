@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ANALYTICS_START_TIMEOUT_MS,
   DISMISS_CLICK_MS,
   HAS_VALID_TOKEN,
   INPUT_DEBOUNCE_MS,
@@ -24,6 +25,7 @@ import {
   visibleMinutes,
 } from './state/bandEditor';
 import { formatCoords, reverseGeocode } from './api/geocode';
+import { startAnalytics, track } from './analytics';
 import { SetupNotice } from './components/SetupNotice';
 import { ControlPanel } from './components/ControlPanel';
 import { DEFAULT_BANDS, type IsochroneQuery, type Origin, type Profile } from './types';
@@ -78,6 +80,17 @@ function sameQuery(a: IsochroneQuery | null, b: IsochroneQuery | null): boolean 
     a.profile === b.profile &&
     a.minutes.join(',') === b.minutes.join(',')
   );
+}
+
+/*
+ * Arriving on a shared link is a property of the page load, not of a component,
+ * so it is recorded here rather than in a mount effect — which StrictMode runs
+ * twice, and which would report every dev session's links as two.
+ *
+ * Safe to call before `startAnalytics`: `track` queues.
+ */
+if (initialShare) {
+  track({ name: 'origin_set', method: 'share_link' });
 }
 
 export function App() {
@@ -174,6 +187,31 @@ export function App() {
   const { visible: caretHint, reveal: revealCaretHint } = useCaretHint(collapsed);
 
   /*
+   * Start analytics, but not yet.
+   *
+   * This effect runs in the same frame the map is building itself, and the
+   * Firebase SDK is a network request and a chunk of parsing that nobody is
+   * waiting on. Handing it to the idle queue keeps it out of the way of the
+   * first screen of tiles, which is the only thing on screen worth being fast.
+   *
+   * `startAnalytics` is a no-op in development, without config, or without
+   * consent — it does not reach the dynamic import in any of those cases — so
+   * this costs nothing when analytics is switched off.
+   */
+  useEffect(() => {
+    const start = () => void startAnalytics();
+
+    // Absent in Safari before 16.4, which is still a live share of iPhones.
+    if (typeof window.requestIdleCallback === 'function') {
+      const handle = window.requestIdleCallback(start, { timeout: ANALYTICS_START_TIMEOUT_MS });
+      return () => window.cancelIdleCallback(handle);
+    }
+
+    const handle = window.setTimeout(start, ANALYTICS_START_TIMEOUT_MS);
+    return () => window.clearTimeout(handle);
+  }, []);
+
+  /*
    * Measured, not assumed. The panel's height varies with the length of the
    * address and whether an error is showing, and on a phone a fixed guess left
    * the result almost entirely behind the sheet.
@@ -267,6 +305,8 @@ export function App() {
     setQuery(null);
     setSearchValue('');
     setLocationError(null);
+
+    track({ name: 'origin_cleared' });
   }, []);
 
   useOriginMarker(map, origin, handleClear);
@@ -383,13 +423,24 @@ export function App() {
       setSearchValue(next.label);
       setLocationError(null);
       collapseOnMobile();
+      track({ name: 'origin_set', method: 'search' });
     },
     [collapseOnMobile],
   );
 
-  const handleToggleBand = useCallback((index: number) => {
-    setEnabled((prev) => prev.map((on, i) => (i === index ? !on : on)));
-  }, []);
+  const handleToggleBand = useCallback(
+    (index: number) => {
+      /*
+       * Read before the update, not inside it. A state updater has to be pure
+       * — StrictMode deliberately runs it twice — so an event raised in there
+       * would be reported twice in development and would be a latent bug the
+       * day React re-runs one in production.
+       */
+      track({ name: 'band_edit', index, enabled: !enabled[index] });
+      setEnabled((prev) => prev.map((on, i) => (i === index ? !on : on)));
+    },
+    [enabled],
+  );
 
   const handleBandInput = useCallback(
     (index: number, value: string) => {
@@ -401,6 +452,7 @@ export function App() {
   const handleProfileChange = useCallback(
     (next: Profile) => {
       setProfile(next);
+      track({ name: 'profile_change', profile: next });
       /*
        * Reset the values to the new profile's defaults: a 60-minute walk is not
        * a unit most people reason about, and carrying driving numbers into
@@ -468,6 +520,14 @@ export function App() {
      */
     revealCaretHint();
 
+    /*
+     * Recorded here rather than inside `setOriginFromCoords`, which is shared
+     * with the geolocate button below and cannot tell the two apart. Which
+     * gesture put the pin down is the interesting part; where it landed is
+     * deliberately not sent at all.
+     */
+    track({ name: 'origin_set', method: 'map_click' });
+
     void setOriginFromCoords(lon, lat, false);
   });
 
@@ -485,6 +545,7 @@ export function App() {
         setLocating(false);
         void setOriginFromCoords(position.coords.longitude, position.coords.latitude, true);
         collapseOnMobile();
+        track({ name: 'origin_set', method: 'geolocate' });
       },
       (error) => {
         setLocating(false);

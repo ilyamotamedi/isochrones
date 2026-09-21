@@ -1,0 +1,23 @@
+rules_version = '2';
+
+/*
+ * Deny everything.
+ *
+ * Firestore is scaffolded but nothing reads or writes it yet — see the caching
+ * exploration. This file exists so that the project is never sitting in test
+ * mode, which expires into a locked database after 30 days and fails in a way
+ * that looks like an outage.
+ *
+ * When the cache lands, the rule to add depends on a decision that has not been
+ * made: if the browser reads the cache directly, these documents have to be
+ * world-readable, which also means world-enumerable. If a server reads them on
+ * the browser's behalf, the Admin SDK bypasses rules entirely and this file can
+ * stay exactly as it is. Prefer the second.
+ */
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

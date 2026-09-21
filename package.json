@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@mapbox/search-js-react": "^1.6.0",
+    "firebase": "^12.19.0",
     "mapbox-gl": "^3.31.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
