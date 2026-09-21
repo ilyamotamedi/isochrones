@@ -8,6 +8,33 @@ on:
   pull_request:
 
 jobs:
+  # Whether this repository can deploy at all.
+  #
+  # Secrets cannot be read in a job-level `if`, so the question has to be
+  # answered inside a step and passed on as an output. The alternative — letting
+  # the deploy action discover the missing input for itself — turns every push
+  # into a failed run, which trains people to ignore the badge.
+  credentials:
+    runs-on: ubuntu-latest
+    outputs:
+      deployable: ${{ steps.probe.outputs.deployable }}
+    steps:
+      - id: probe
+        env:
+          SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          MAPBOX_TOKEN: ${{ secrets.VITE_MAPBOX_TOKEN }}
+        run: |
+          missing=""
+          [ -n "$SERVICE_ACCOUNT" ] || missing="$missing FIREBASE_SERVICE_ACCOUNT"
+          [ -n "$MAPBOX_TOKEN" ] || missing="$missing VITE_MAPBOX_TOKEN"
+
+          if [ -n "$missing" ]; then
+            echo "deployable=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Deploy skipped. Missing repository secrets:$missing"
+          else
+            echo "deployable=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -48,8 +75,11 @@ jobs:
   preview:
     # Skipped for pull requests from forks: they cannot read secrets, so the
     # build would ship without a Mapbox token and the deploy would fail anyway.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    needs: build
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.credentials.outputs.deployable == 'true'
+    needs: [credentials, build]
     runs-on: ubuntu-latest
     permissions:
       checks: write
@@ -69,8 +99,11 @@ jobs:
           expires: 7d
 
   live:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: build
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.credentials.outputs.deployable == 'true'
+    needs: [credentials, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
