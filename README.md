@@ -248,6 +248,29 @@ sites cannot pass free-form parameters. **No coordinates, addresses or search
 text are sent**, and a unit test fails if a location-shaped key is added to the
 allow-list.
 
+#### Verified on the wire
+
+Claims about privacy are worth exactly what they are tested against, so these
+were checked against the deployed site with a real browser, loading a share
+link containing `lng=-73.89641&lat=40.74412&q=68-01+Queens+Boulevard,+Woodside`
+and inspecting every request to Google — URL and POST body, raw and
+URL-decoded:
+
+| Checked | Result |
+| --- | --- |
+| Any of `40.744`, `73.896`, `queens`, `woodside`, `68-01`, `boulevard` in anything sent | **none** |
+| `dl` (page_location) on the collect ping | `https://isochrones-4f3fa.web.app/` |
+| First `dataLayer` command | `consent default`, all four categories denied |
+| Second | `set ads_data_redaction true` |
+| Decliner's collect ping | `gcs=G100` |
+| Decliner's cookies | none |
+| After accepting | `gcs=G101`, `_ga` + `_ga_<id>` appear |
+
+`gcs` is `G1<ad_storage><analytics_storage>`, `0` denied and `1` granted — so
+`G100` is the cookieless ping, and `G101` is the proof that accepting grants
+analytics **without** granting advertising. `G111` would mean something had
+gone wrong.
+
 ## How it works
 
 No backend. The browser talks to Mapbox directly.
