@@ -1,54 +1,64 @@
 /**
- * Firebase Analytics, loaded late and only if it is wanted.
+ * Analytics: the impure edge.
  *
- * Everything with a rule in it lives in `events.ts` and `consent.ts`, which are
- * pure and tested. This file is the impure edge: dynamic import, SDK handle,
- * and the queue that covers the gap between the two.
+ * Everything with a rule in it lives next door and is pure and tested —
+ * `events.ts` (what may be sent), `consent.ts` (whether it may be sent),
+ * `location.ts` (what the URL is allowed to say). This file is the wiring:
+ * gates, a queue, and the decision of when the tag goes in.
+ *
+ * The mode lives in `config.ts`, not here, because it is a deployment choice
+ * rather than an implementation detail.
  */
 
-import { analyticsAllowed, readConsent } from './consent';
+import { ANALYTICS_MODE, GA_MEASUREMENT_ID } from '../config';
+import { analyticsAllowed, readConsent, writeConsent, type ConsentState } from './consent';
 import { isForbiddenParamKey, toGaParams, type AnalyticsEvent } from './events';
+import { installTag, isTagInstalled, sendEvent, setPageLocation, updateConsent } from './gtag';
 
 /*
- * Read straight from the environment rather than through `config.ts`.
+ * Events raised before the tag is in.
  *
- * These are not secrets — Firebase web config is public by design, and the
- * project is identified by it on every request — but they are also not
- * interesting to the rest of the app, and putting them in `config.ts` would
- * imply they are.
- */
-const FIREBASE_CONFIG = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY as string | undefined,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN as string | undefined,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID as string | undefined,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET as string | undefined,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string | undefined,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID as string | undefined,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID as string | undefined,
-};
-
-/** Without these two there is nothing to send to. */
-const HAS_CONFIG = Boolean(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.measurementId);
-
-type LogEvent = (name: string, params: Record<string, unknown>) => void;
-
-let logEventFn: LogEvent | null = null;
-let starting = false;
-
-/*
- * Events raised before the SDK finishes loading.
- *
- * Bounded, and small on purpose. This exists so that an event fired during the
- * first second is not silently dropped — not so that a session's worth of
- * activity can accumulate in memory waiting for a network request that may
- * never complete.
+ * Bounded, and small on purpose. This exists so an event fired during the
+ * first second is not silently dropped — not so a session's worth of activity
+ * can accumulate in memory waiting for a script that may never arrive.
  */
 const MAX_QUEUED = 20;
 const queue: AnalyticsEvent[] = [];
 
-function dispatch(event: AnalyticsEvent): void {
-  if (!logEventFn) return;
+/**
+ * Whether there is a property to send to.
+ *
+ * Deliberately says nothing about the current build. A missing measurement ID
+ * means clicking either button has no effect anywhere, so putting the question
+ * in front of that visitor would be theatre — and worse than theatre, because
+ * it teaches people that the banner is noise.
+ */
+export function analyticsConfigured(): boolean {
+  if (ANALYTICS_MODE === 'off') return false;
+  if (!GA_MEASUREMENT_ID) return false;
+  if (typeof window === 'undefined') return false;
+  return true;
+}
 
+/**
+ * Whether this build will actually send anything.
+ *
+ * The extra gate over `analyticsConfigured` is production. Development gets
+ * the banner and the stored decision but never the tag, so the consent flow
+ * can be worked on and tested without putting a single event into the
+ * property — and without 152 kB of `gtag.js` on every hot reload.
+ */
+function analyticsPossible(): boolean {
+  return analyticsConfigured() && import.meta.env.PROD;
+}
+
+/** The decision as stored, or `unknown`. */
+export function currentConsent(): ConsentState {
+  if (typeof window === 'undefined') return 'unknown';
+  return readConsent(window.localStorage);
+}
+
+function dispatch(event: AnalyticsEvent): void {
   const params = toGaParams(event);
 
   /*
@@ -69,82 +79,86 @@ function dispatch(event: AnalyticsEvent): void {
     delete params[key];
   }
 
-  logEventFn(event.name, params);
+  sendEvent(event.name, params);
+}
+
+function flush(): void {
+  while (queue.length > 0) {
+    const queued = queue.shift();
+    if (queued) dispatch(queued);
+  }
 }
 
 /**
- * Starts Analytics if — and only if — it is wanted, supported and configured.
+ * Installs the tag, if this build has one and this visitor should get it.
  *
- * Safe to call more than once and safe to call before consent exists; it is a
- * no-op until every condition holds.
+ * Safe to call more than once and safe to call before a decision exists.
+ *
+ * In `advanced` mode the tag goes in for everyone, carrying the visitor's
+ * standing answer — `denied` for anyone who has not answered, which is what
+ * produces a cookieless ping rather than a tracked one. In `basic` mode there
+ * is an extra gate and nothing is requested until an explicit yes.
  */
-export async function startAnalytics(): Promise<void> {
-  if (logEventFn || starting) return;
+export function startAnalytics(): void {
+  if (!analyticsPossible()) return;
+
+  const granted = analyticsAllowed(currentConsent());
+  if (ANALYTICS_MODE === 'basic' && !granted) return;
+
+  installTag({
+    measurementId: GA_MEASUREMENT_ID,
+    analyticsStorage: granted ? 'granted' : 'denied',
+    href: window.location.href,
+  });
+
+  flush();
+}
+
+/**
+ * Records an answer and acts on it immediately.
+ *
+ * The write happens first and happens in every build, including development
+ * and builds with no measurement ID, so the banner behaves the same way
+ * everywhere and can be exercised locally.
+ */
+export function setAnalyticsConsent(state: ConsentState): void {
+  if (typeof window !== 'undefined') writeConsent(window.localStorage, state);
+
+  if (!analyticsPossible()) return;
+
+  if (isTagInstalled()) {
+    updateConsent(analyticsAllowed(state) ? 'granted' : 'denied');
+    return;
+  }
 
   /*
-   * Four gates, cheapest first, and the order matters for what gets loaded.
-   * Each one short-circuits before the dynamic import below, so a visitor who
-   * has not consented never downloads the SDK at all — the bundle cost is
-   * theirs to opt into.
+   * Only reachable in `basic` mode, where the tag was withheld pending this
+   * answer. `startAnalytics` re-reads storage and will still decline to do
+   * anything if the answer was no.
    */
-  if (!import.meta.env.PROD) return;
-  if (!HAS_CONFIG) return;
-  if (typeof window === 'undefined') return;
-  if (!analyticsAllowed(readConsent(window.localStorage))) return;
+  startAnalytics();
+}
 
-  starting = true;
-
-  try {
-    const [{ initializeApp }, { getAnalytics, isSupported, logEvent }] = await Promise.all([
-      import('firebase/app'),
-      import('firebase/analytics'),
-    ]);
-
-    /*
-     * `isSupported` rather than a try/catch around `getAnalytics`. It returns
-     * false where IndexedDB or cookies are unavailable — private browsing, some
-     * embedded webviews, anything with storage blocked by policy — and calling
-     * `getAnalytics` in those conditions throws.
-     */
-    if (!(await isSupported())) return;
-
-    const app = initializeApp(FIREBASE_CONFIG as Record<string, string>);
-    const analytics = getAnalytics(app);
-
-    logEventFn = (name, params) => {
-      // The SDK's own type is a large union of known GA event names; ours is a
-      // closed set that does not overlap it, and the cast is confined here.
-      (logEvent as unknown as (a: unknown, n: string, p: unknown) => void)(
-        analytics,
-        name,
-        params,
-      );
-    };
-
-    while (queue.length > 0) {
-      const queued = queue.shift();
-      if (queued) dispatch(queued);
-    }
-  } catch {
-    /*
-     * A blocked or failed analytics load is not an application error. Ad
-     * blockers make this an ordinary outcome, not an exceptional one, and it
-     * must never reach the user.
-     */
-  } finally {
-    starting = false;
-  }
+/**
+ * Re-states the sanitised page address.
+ *
+ * Called whenever the app rewrites the URL, which it does on every query. See
+ * `location.ts` for what is being kept out, and why it matters here more than
+ * it would in most apps.
+ */
+export function trackPageLocation(href: string): void {
+  setPageLocation(href);
 }
 
 /**
  * Records an event, if analytics is running.
  *
  * Never throws and never awaits, so call sites do not have to care whether
- * analytics exists. An event raised before the SDK is ready is queued; one
- * raised when analytics is switched off is dropped.
+ * analytics exists. An event raised before the tag is in is queued; one raised
+ * when analytics is switched off is dropped once the queue is full.
  */
 export function track(event: AnalyticsEvent): void {
-  if (logEventFn) {
+  if (isTagInstalled()) {
     dispatch(event);
     return;
   }
@@ -152,3 +166,4 @@ export function track(event: AnalyticsEvent): void {
 }
 
 export type { AnalyticsEvent } from './events';
+export type { ConsentState } from './consent';

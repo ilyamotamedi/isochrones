@@ -53,6 +53,13 @@ interface ControlPanelProps {
   themePreference: ThemePreference;
   theme: ResolvedTheme;
   onCycleTheme: () => void;
+  /**
+   * Whether analytics exists to have an opinion about. False in a build with
+   * no measurement ID, where the control would open a banner asking permission
+   * for something that cannot happen.
+   */
+  showPrivacy: boolean;
+  onOpenPrivacy: () => void;
 }
 
 export function ControlPanel({
@@ -84,6 +91,8 @@ export function ControlPanel({
   themePreference,
   theme,
   onCycleTheme,
+  showPrivacy,
+  onOpenPrivacy,
 }: ControlPanelProps) {
   return (
     <div ref={panelRef} className={collapsed ? 'panel panel--collapsed' : 'panel'}>
@@ -199,9 +208,32 @@ export function ControlPanel({
 
         <StatusBanner status={status} hasOrigin={origin !== null} />
 
-        {hasResult && (
+        {/*
+          Share and Privacy share a section, and a separator.
+
+          They are the two controls here that act on something other than the
+          map, and on an iPhone SE a second bordered row for a 12px text link
+          cost 24px of map — measured, not guessed. One section, one rule.
+        */}
+        {(hasResult || showPrivacy) && (
           <div className="panel__section">
-            <ShareButton disabled={status.kind !== 'success'} />
+            {hasResult && <ShareButton disabled={status.kind !== 'success'} />}
+
+            {/*
+              Withdrawal has to be as easy as granting, which means the
+              decision needs a permanent home rather than living only in a
+              banner that is gone for good after one click.
+
+              Last, small and quiet: it is the least interesting control here,
+              and the only people who want it already know they want it.
+            */}
+            {showPrivacy && (
+              <div className="panel__footer">
+                <button type="button" className="panel__link" onClick={onOpenPrivacy}>
+                  Privacy
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

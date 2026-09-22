@@ -1065,6 +1065,129 @@ mapbox-search-listbox {
   }
 }
 
+/* --- Panel footer --- */
+
+/*
+ * No border and no padding of its own: it sits inside the share section and
+ * borrows that section's separator. A rule of its own would be a second line
+ * across the panel to introduce a single 12px link.
+ */
+.panel__footer {
+  margin-top: 6px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/*
+ * A text button, not a `.btn`. Everything else in the panel changes what is on
+ * the map; this changes what leaves the browser, which is a different kind of
+ * thing and should not compete for attention with the controls.
+ *
+ * The vertical padding is load-bearing: 5px takes a 15px line to 25px, which
+ * clears the 24px minimum in WCAG 2.2 SC 2.5.8. It is not spare space.
+ */
+.panel__link {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: none;
+  border: 0;
+  padding: 5px 2px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.panel__link:hover {
+  color: var(--text);
+}
+
+.panel__link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* --- Consent banner --- */
+
+/*
+ * Fixed to the bottom, centred, and narrow. Not full-bleed: a bar across the
+ * whole viewport reads as a barrier, and this is not one — the map underneath
+ * stays live and usable while it is up.
+ *
+ * `bottom: 32px` rather than 12px so the Mapbox attribution and wordmark stay
+ * uncovered. That is a licensing requirement, not a preference.
+ *
+ * z-index sits above the map and the panel (10) but below the suggestions
+ * listbox (20), which is portaled to the body and must stay on top of
+ * everything while someone is choosing an address.
+ */
+.consent {
+  position: fixed;
+  bottom: 32px;
+  left: 12px;
+  right: 12px;
+  margin-inline: auto;
+  max-width: 460px;
+  z-index: 15;
+
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+
+  background: var(--panel-bg);
+  border-radius: var(--radius);
+  box-shadow: var(--panel-shadow);
+  padding: 12px 14px;
+
+  animation: consent-in 180ms ease-out;
+}
+
+.consent__text {
+  flex: 1 1 200px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.consent__note {
+  color: var(--text-muted);
+}
+
+.consent__actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/*
+ * Identical, deliberately. See `ConsentBanner` — refusing must be no harder
+ * than accepting, and a styling change here is a compliance change, not a
+ * cosmetic one.
+ */
+.consent__btn {
+  min-width: 84px;
+}
+
+@keyframes consent-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/*
+ * The global reduce-motion block above neutralises the duration, which stops
+ * the slide but leaves the element starting from `opacity: 0` for an instant.
+ * Removing the animation outright is the honest version.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .consent {
+    animation: none;
+  }
+}
+
 /* --- Mobile: panel becomes a top sheet --- */
 
 @media (max-width: 640px) {
@@ -1117,6 +1240,15 @@ mapbox-search-listbox {
    */
   .profiles__btn {
     padding: 12px 4px;
+  }
+
+  /*
+   * The same floor for the consent buttons. A mis-tap here is worse than a
+   * mis-tap on a travel mode: one is a wrong map, the other is a wrong answer
+   * to a question that is never asked again.
+   */
+  .consent__btn {
+    min-height: 44px;
   }
 
   /*

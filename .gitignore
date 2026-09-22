@@ -23,3 +23,8 @@ coverage
 firebase-debug.log*
 firestore-debug.log*
 .runtimeconfig.json
+
+# Firebase service account keys. Nothing here should ever need one — the CI
+# deploy reads its credentials from a repository secret — but a downloaded key
+# lands with a predictable name and committing one is unrecoverable.
+*firebase-adminsdk*.json

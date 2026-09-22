@@ -17,6 +17,7 @@ import { useIsochroneQuery } from './state/useIsochroneQuery';
 import { useDebouncedValue } from './state/useDebouncedValue';
 import { useTheme } from './state/useTheme';
 import { useCaretHint } from './state/useCaretHint';
+import { useConsent } from './state/useConsent';
 import { encodeShareState, parseShareState } from './state/urlState';
 import {
   enabledValidCount,
@@ -25,8 +26,9 @@ import {
   visibleMinutes,
 } from './state/bandEditor';
 import { formatCoords, reverseGeocode } from './api/geocode';
-import { startAnalytics, track } from './analytics';
+import { startAnalytics, track, trackPageLocation } from './analytics';
 import { SetupNotice } from './components/SetupNotice';
+import { ConsentBanner } from './components/ConsentBanner';
 import { ControlPanel } from './components/ControlPanel';
 import { DEFAULT_BANDS, type IsochroneQuery, type Origin, type Profile } from './types';
 
@@ -187,19 +189,27 @@ export function App() {
   const { visible: caretHint, reveal: revealCaretHint } = useCaretHint(collapsed);
 
   /*
+   * The consent question, its once-only rule and its timer. See `useConsent`.
+   */
+  const consent = useConsent();
+
+  /*
    * Start analytics, but not yet.
    *
-   * This effect runs in the same frame the map is building itself, and the
-   * Firebase SDK is a network request and a chunk of parsing that nobody is
-   * waiting on. Handing it to the idle queue keeps it out of the way of the
-   * first screen of tiles, which is the only thing on screen worth being fast.
+   * This effect runs in the same frame the map is building itself, and
+   * `gtag.js` is 152 kB that nobody is waiting on. Handing it to the idle queue
+   * keeps it out of the way of the first screen of tiles, which is the only
+   * thing on screen worth being fast.
    *
-   * `startAnalytics` is a no-op in development, without config, or without
-   * consent — it does not reach the dynamic import in any of those cases — so
-   * this costs nothing when analytics is switched off.
+   * `startAnalytics` is a no-op in development, in a build with no measurement
+   * ID, and — in basic mode — without consent. It does not reach the script tag
+   * in any of those cases, so this costs nothing when analytics is switched
+   * off.
    */
   useEffect(() => {
-    const start = () => void startAnalytics();
+    const start = () => {
+      startAnalytics();
+    };
 
     // Absent in Safari before 16.4, which is still a live share of iPhones.
     if (typeof window.requestIdleCallback === 'function') {
@@ -353,6 +363,7 @@ export function App() {
       if (!hadQueryRef.current) return;
       hadQueryRef.current = false;
       window.history.replaceState(null, '', window.location.pathname);
+      trackPageLocation(window.location.href);
       return;
     }
 
@@ -364,6 +375,15 @@ export function App() {
       visible,
     });
     window.history.replaceState(null, '', `${window.location.pathname}?${qs}`);
+
+    /*
+     * The URL now contains the user's coordinates and street address, and GA
+     * reads `page_location` from `document.location` on its own. This pins it
+     * to the sanitised value instead — so if Enhanced Measurement's "page
+     * changes based on browser history events" is ever on, the page view it
+     * fires here is clean. A no-op when analytics is not running.
+     */
+    trackPageLocation(window.location.href);
   }, [query, visible]);
 
   /*
@@ -611,7 +631,17 @@ export function App() {
         themePreference={themePreference}
         theme={theme}
         onCycleTheme={cycleTheme}
+        showPrivacy={consent.available}
+        onOpenPrivacy={consent.reopen}
       />
+
+      {/*
+        Last in the tree, so it is last in the tab order. Someone arriving by
+        keyboard reaches the search field first, which is what they came for;
+        the banner is reachable but does not stand in the way. It is not a
+        modal and does not take focus — see `ConsentBanner`.
+      */}
+      <ConsentBanner open={consent.bannerOpen} onDecide={consent.decide} />
     </div>
   );
 }

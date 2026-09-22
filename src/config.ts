@@ -160,7 +160,7 @@ export const CARET_HINT_DURATION_MS = 6000;
 /**
  * The latest analytics may start, in milliseconds after mount.
  *
- * Analytics is scheduled on an idle callback so that downloading the SDK does
+ * Analytics is scheduled on an idle callback so that downloading the tag does
  * not compete with the first screen of map tiles for bandwidth or main-thread
  * time. On a busy page idle may never arrive, so this is the deadline that
  * forces it — and the plain delay used where `requestIdleCallback` is missing.
@@ -169,6 +169,57 @@ export const CARET_HINT_DURATION_MS = 6000;
  * visitor who leaves quickly is still counted.
  */
 export const ANALYTICS_START_TIMEOUT_MS = 3000;
+
+/**
+ * How Google Analytics behaves for someone who has not answered the banner.
+ *
+ * | Mode | The tag loads | A decliner sends |
+ * | --- | --- | --- |
+ * | `advanced` | immediately, for everyone | cookieless pings |
+ * | `basic` | only after an explicit yes | nothing at all |
+ * | `off` | never | nothing at all |
+ *
+ * "Advanced" and "basic" are Google's own names for the two consent-mode
+ * implementations, kept rather than renamed so the mapping to their
+ * documentation is obvious.
+ *
+ * The cost of `advanced` is worth stating plainly: every visitor downloads
+ * `gtag.js` — 152 kB gzipped, measured — and a decliner still makes a request
+ * to Google carrying their IP and user agent. What they do not get is storage:
+ * no cookie, no identifier, nothing that persists. That is the line consent
+ * mode draws, and the reason declining has a visible effect rather than a
+ * theoretical one.
+ *
+ * Changing your mind is this one line. The banner, the stored decision and the
+ * event vocabulary are identical in all three modes.
+ */
+export type AnalyticsMode = 'advanced' | 'basic' | 'off';
+
+export const ANALYTICS_MODE: AnalyticsMode = 'advanced';
+
+/**
+ * The GA4 measurement ID, `G-XXXXXXXXXX`.
+ *
+ * Not a secret — it is visible in every request the tag makes — but it is
+ * per-property, so it lives in the environment rather than in the source.
+ * Absent, analytics never starts and the banner never appears: there is no
+ * point asking permission to do nothing.
+ */
+const rawMeasurementId = import.meta.env.VITE_GA_MEASUREMENT_ID as string | undefined;
+
+export const GA_MEASUREMENT_ID: string =
+  typeof rawMeasurementId === 'string' ? rawMeasurementId.trim() : '';
+
+/**
+ * How long the consent banner waits before sliding in.
+ *
+ * Not a dark pattern — the banner arrives either way, and both buttons carry
+ * equal weight. It is about what the first moment on the page looks like: a
+ * map, rather than a map with a bar of legal text across it. It also keeps the
+ * banner clear of the caret hint, which starts its own timer at
+ * `CARET_HINT_DELAY_MS`.
+ */
+export const CONSENT_BANNER_DELAY_MS = 1200;
 
 /** Breathing room between the panel edge and the fitted result. */
 const FIT_GAP = 16;

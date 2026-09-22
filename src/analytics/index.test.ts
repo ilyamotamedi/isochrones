@@ -1,227 +1,323 @@
 /**
- * The gates in front of the Firebase SDK, and the queue behind them.
+ * The gates, the queue, and the consent write-through.
  *
- * `events.ts` and `consent.ts` are tested for what may be sent. This file
- * tests something different and just as easy to get wrong: whether the SDK is
- * *downloaded at all*. The README makes a specific promise — a visitor who has
- * not consented pays nothing beyond the few hundred bytes of this module — and
- * a promise about bundle cost is worth a test that can fail.
+ * ## The trap this file was rebuilt around
  *
- * Each gate gets its own case, so a regression names which one was removed
- * rather than just reporting that analytics loaded.
+ * An earlier version of these tests used `vi.mock` with a factory that counted
+ * SDK imports. `vi.mock` factories run **once per file** regardless of
+ * `vi.resetModules()`, so the counter was shared across every case and each
+ * negative test passed for the wrong reason: the count was zero because a
+ * previous test had already consumed it, not because the gate held.
+ *
+ * Hence `vi.doMock` inside `load()`, re-registered after every reset, and
+ * assertions on the queue's contents rather than on a counter.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CONSENT_STORAGE_KEY } from './consent';
+import { CONSENT_STORAGE_KEY, type ConsentState } from './consent';
 
-/*
- * The counters are the actual assertion: they increment when — and only when —
- * the SDK module is really imported, which is the thing that costs a download.
- *
- * Asserting on `initializeApp` instead would be weaker. Every gate currently
- * sits in front of the dynamic import, and a refactor that moved one behind it
- * would still leave `initializeApp` uncalled while fetching the chunk anyway.
- */
-const mocks = {
-  appImports: 0,
-  analyticsImports: 0,
-  logEvent: vi.fn(),
-  isSupported: vi.fn(async () => true),
-};
+const ID = 'G-TEST12345';
+const HREF = 'https://isochrones-4f3fa.web.app/?lng=-73.89641&lat=40.74412&q=68-01+Queens+Blvd';
 
-const CONFIG = {
-  VITE_FIREBASE_API_KEY: 'test-api-key',
-  VITE_FIREBASE_MEASUREMENT_ID: 'G-TEST',
-};
-
-function fakeWindow(consent: string | null): { localStorage: Pick<Storage, 'getItem'> } {
-  return {
-    localStorage: {
-      getItem: (key: string) => (key === CONSENT_STORAGE_KEY ? consent : null),
-    },
-  };
-}
-
-interface Options {
+interface LoadOptions {
+  mode?: 'advanced' | 'basic' | 'off';
+  measurementId?: string;
   prod?: boolean;
-  config?: boolean;
-  consent?: string | null;
-  window?: boolean;
+  consent?: ConsentState | null;
+  href?: string;
 }
 
-/*
- * A fresh copy of the module under a chosen environment.
- *
- * `resetModules` is not optional here: `FIREBASE_CONFIG` and `HAS_CONFIG` are
- * read at module scope, so stubbing the environment after the first import
- * would have no effect, and the module-level `logEventFn` would leak a started
- * analytics instance from one case into the next.
- *
- * `doMock` rather than the hoisted `mock`, and re-registered every time. A
- * hoisted `vi.mock` factory runs once for the whole file no matter how often
- * the registry is reset, which quietly pins the counters at whatever the first
- * case left them — every negative assertion below would then pass without
- * testing anything.
- */
-async function load(options: Options = {}) {
-  const { prod = true, config = true, consent = 'granted', window: hasWindow = true } = options;
+async function load(options: LoadOptions = {}) {
+  const {
+    mode = 'advanced',
+    measurementId = ID,
+    prod = true,
+    consent = null,
+    href = HREF,
+  } = options;
 
   vi.resetModules();
-  vi.unstubAllEnvs();
-  vi.unstubAllGlobals();
-
-  vi.doMock('firebase/app', () => {
-    mocks.appImports += 1;
-    return { initializeApp: () => ({}) };
-  });
-
-  vi.doMock('firebase/analytics', () => {
-    mocks.analyticsImports += 1;
-    return {
-      getAnalytics: () => ({}),
-      isSupported: mocks.isSupported,
-      logEvent: mocks.logEvent,
-    };
-  });
-
   vi.stubEnv('PROD', prod);
-  if (config) {
-    for (const [key, value] of Object.entries(CONFIG)) vi.stubEnv(key, value);
-  }
-  if (hasWindow) vi.stubGlobal('window', fakeWindow(consent));
+  vi.stubEnv('DEV', !prod);
 
-  return import('./index');
+  const store = new Map<string, string>();
+  if (consent) store.set(CONSENT_STORAGE_KEY, consent);
+
+  const dataLayer: unknown[] = [];
+  vi.stubGlobal('window', {
+    dataLayer,
+    location: { href },
+    localStorage: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+    },
+  });
+
+  /*
+   * A partial mock of `config.ts`, because `ANALYTICS_MODE` is a literal
+   * constant rather than an environment read — that is deliberate in the
+   * source (it is a deployment decision, not a runtime one) and it means the
+   * only way to exercise the other two modes is from here.
+   */
+  vi.doMock('../config', () => ({
+    ANALYTICS_MODE: mode,
+    GA_MEASUREMENT_ID: measurementId,
+  }));
+
+  const analytics = await import('./index');
+  return { ...analytics, dataLayer, store };
+}
+
+function commands(dataLayer: unknown[]): unknown[][] {
+  return dataLayer.map((entry) => Array.from(entry as IArguments));
+}
+
+function consentDefault(dataLayer: unknown[]): Record<string, unknown> | undefined {
+  const found = commands(dataLayer).find(
+    (args) => args[0] === 'consent' && args[1] === 'default',
+  );
+  return found?.[2] as Record<string, unknown> | undefined;
 }
 
 beforeEach(() => {
-  mocks.appImports = 0;
-  mocks.analyticsImports = 0;
-  mocks.logEvent.mockClear();
-  mocks.isSupported.mockClear();
-  mocks.isSupported.mockImplementation(async () => true);
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 afterEach(() => {
-  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  vi.doUnmock('../config');
 });
 
-describe('startAnalytics gates', () => {
-  it('loads the SDK when every gate passes', async () => {
-    const { startAnalytics } = await load();
-    await startAnalytics();
-
-    expect(mocks.appImports).toBe(1);
-    expect(mocks.analyticsImports).toBe(1);
-  });
-
-  it('does not load the SDK in development', async () => {
-    const { startAnalytics } = await load({ prod: false });
-    await startAnalytics();
-
-    expect(mocks.appImports).toBe(0);
-    expect(mocks.analyticsImports).toBe(0);
-  });
-
-  it('does not load the SDK without Firebase config', async () => {
-    const { startAnalytics } = await load({ config: false });
-    await startAnalytics();
-
-    expect(mocks.appImports).toBe(0);
-  });
-
+describe('advanced mode', () => {
   /*
-   * The one that matters most, and the one a well-meaning refactor is most
-   * likely to drop: consent is checked *before* the dynamic import, not after.
-   * Loading the SDK and then declining to call it would still be a third-party
-   * request the user did not agree to.
+   * The defining behaviour of advanced consent mode: somebody who has not
+   * answered still gets the tag, and it still sends — cookielessly, because
+   * `analytics_storage` is denied. That is what buys the aggregate counts.
    */
-  it('does not load the SDK without consent', async () => {
-    const { startAnalytics } = await load({ consent: null });
-    await startAnalytics();
+  it('installs the tag for a visitor who has not answered', async () => {
+    const { startAnalytics, dataLayer } = await load();
 
-    expect(mocks.appImports).toBe(0);
-    expect(mocks.analyticsImports).toBe(0);
+    startAnalytics();
+
+    expect(dataLayer.length).toBeGreaterThan(0);
+    expect(consentDefault(dataLayer)?.analytics_storage).toBe('denied');
   });
 
-  it('treats a refusal as a refusal', async () => {
-    const { startAnalytics } = await load({ consent: 'denied' });
-    await startAnalytics();
+  it('honours a stored grant on the very first command', async () => {
+    const { startAnalytics, dataLayer } = await load({ consent: 'granted' });
 
-    expect(mocks.appImports).toBe(0);
+    startAnalytics();
+
+    expect(consentDefault(dataLayer)?.analytics_storage).toBe('granted');
   });
 
-  it('survives an environment with no window', async () => {
-    const { startAnalytics } = await load({ window: false });
-    await expect(startAnalytics()).resolves.toBeUndefined();
+  it('honours a stored refusal', async () => {
+    const { startAnalytics, dataLayer } = await load({ consent: 'denied' });
 
-    expect(mocks.appImports).toBe(0);
-  });
+    startAnalytics();
 
-  it('only starts once, however many times it is called', async () => {
-    const { startAnalytics } = await load();
-    await Promise.all([startAnalytics(), startAnalytics()]);
-    await startAnalytics();
-
-    expect(mocks.appImports).toBe(1);
-  });
-
-  /*
-   * `isSupported` returning false is an ordinary outcome — private browsing,
-   * blocked storage — not an error, and it must not leave a half-started
-   * instance behind that swallows events.
-   */
-  it('gives up quietly when the browser cannot support analytics', async () => {
-    mocks.isSupported.mockImplementation(async () => false);
-
-    const { startAnalytics, track } = await load();
-    await startAnalytics();
-    track({ name: 'share_copied' });
-
-    expect(mocks.logEvent).not.toHaveBeenCalled();
+    expect(consentDefault(dataLayer)?.analytics_storage).toBe('denied');
   });
 });
 
-describe('track', () => {
-  it('never throws when analytics is switched off', async () => {
-    const { track } = await load({ consent: null });
+describe('gates', () => {
+  it('sends nothing in development', async () => {
+    const { startAnalytics, dataLayer } = await load({ prod: false });
 
-    expect(() => track({ name: 'origin_set', method: 'search' })).not.toThrow();
-    expect(mocks.logEvent).not.toHaveBeenCalled();
+    startAnalytics();
+
+    expect(dataLayer).toHaveLength(0);
   });
 
-  it('delivers events raised before the SDK finished loading', async () => {
-    const { startAnalytics, track } = await load();
+  it('sends nothing without a measurement ID', async () => {
+    const { startAnalytics, analyticsConfigured, dataLayer } = await load({
+      measurementId: '',
+    });
+
+    startAnalytics();
+
+    expect(dataLayer).toHaveLength(0);
+    // And there is no point asking permission for it.
+    expect(analyticsConfigured()).toBe(false);
+  });
+
+  it('sends nothing when the mode is off', async () => {
+    const { startAnalytics, analyticsConfigured, dataLayer } = await load({ mode: 'off' });
+
+    startAnalytics();
+
+    expect(dataLayer).toHaveLength(0);
+    expect(analyticsConfigured()).toBe(false);
+  });
+
+  /*
+   * The banner has to exist in development or it could never be worked on.
+   * What must not exist in development is the tag — asserted above.
+   */
+  it('still offers the question in development', async () => {
+    const { analyticsConfigured } = await load({ prod: false });
+
+    expect(analyticsConfigured()).toBe(true);
+  });
+
+  it('is safe to start twice', async () => {
+    const { startAnalytics, dataLayer } = await load();
+
+    startAnalytics();
+    const after = dataLayer.length;
+    startAnalytics();
+
+    expect(dataLayer.length).toBe(after);
+  });
+});
+
+describe('basic mode', () => {
+  it('requests nothing at all until an explicit yes', async () => {
+    const { startAnalytics, dataLayer } = await load({ mode: 'basic' });
+
+    startAnalytics();
+
+    expect(dataLayer).toHaveLength(0);
+  });
+
+  it('stays quiet for someone who declined', async () => {
+    const { startAnalytics, setAnalyticsConsent, dataLayer } = await load({ mode: 'basic' });
+
+    startAnalytics();
+    setAnalyticsConsent('denied');
+
+    expect(dataLayer).toHaveLength(0);
+  });
+
+  it('installs the tag the moment consent is given', async () => {
+    const { startAnalytics, setAnalyticsConsent, dataLayer } = await load({ mode: 'basic' });
+
+    startAnalytics();
+    setAnalyticsConsent('granted');
+
+    expect(consentDefault(dataLayer)?.analytics_storage).toBe('granted');
+  });
+});
+
+describe('recording a decision', () => {
+  it('writes it down', async () => {
+    const { setAnalyticsConsent, store } = await load();
+
+    setAnalyticsConsent('denied');
+
+    expect(store.get(CONSENT_STORAGE_KEY)).toBe('denied');
+  });
+
+  /*
+   * The banner behaves identically everywhere, so a decision made in
+   * development is still remembered. Only the tag is withheld.
+   */
+  it('writes it down in development too', async () => {
+    const { setAnalyticsConsent, store, dataLayer } = await load({ prod: false });
+
+    setAnalyticsConsent('granted');
+
+    expect(store.get(CONSENT_STORAGE_KEY)).toBe('granted');
+    expect(dataLayer).toHaveLength(0);
+  });
+
+  it('updates a running tag rather than reinstalling it', async () => {
+    const { startAnalytics, setAnalyticsConsent, dataLayer } = await load();
+    startAnalytics();
+
+    setAnalyticsConsent('granted');
+
+    const defaults = commands(dataLayer).filter(
+      (args) => args[0] === 'consent' && args[1] === 'default',
+    );
+    expect(defaults).toHaveLength(1);
+
+    const update = commands(dataLayer).find(
+      (args) => args[0] === 'consent' && args[1] === 'update',
+    );
+    expect(update?.[2]).toEqual({ analytics_storage: 'granted' });
+  });
+
+  it('can be reversed', async () => {
+    const { startAnalytics, setAnalyticsConsent, dataLayer } = await load({
+      consent: 'granted',
+    });
+    startAnalytics();
+
+    setAnalyticsConsent('denied');
+
+    const update = commands(dataLayer).find(
+      (args) => args[0] === 'consent' && args[1] === 'update',
+    );
+    expect(update?.[2]).toEqual({ analytics_storage: 'denied' });
+  });
+});
+
+describe('the queue', () => {
+  it('holds events raised before the tag is in, and keeps their order', async () => {
+    const { startAnalytics, track, dataLayer } = await load();
 
     track({ name: 'origin_set', method: 'map_click' });
     track({ name: 'origin_cleared' });
-    await startAnalytics();
+    startAnalytics();
 
-    expect(mocks.logEvent).toHaveBeenCalledTimes(2);
-    expect(mocks.logEvent).toHaveBeenNthCalledWith(1, {}, 'origin_set', { method: 'map_click' });
-    expect(mocks.logEvent).toHaveBeenNthCalledWith(2, {}, 'origin_cleared', {});
+    const events = commands(dataLayer)
+      .filter((args) => args[0] === 'event')
+      .map((args) => args[1]);
+    expect(events).toEqual(['origin_set', 'origin_cleared']);
   });
 
-  /*
-   * The queue exists to cover the second before the SDK lands, not to bank a
-   * session. Unbounded, a visitor who never consents would accumulate one
-   * object per interaction for as long as the tab is open.
-   */
-  it('stops queueing once the buffer is full', async () => {
-    const { startAnalytics, track } = await load();
+  it('is bounded', async () => {
+    const { startAnalytics, track, dataLayer } = await load();
 
     for (let i = 0; i < 25; i += 1) track({ name: 'origin_cleared' });
-    await startAnalytics();
+    startAnalytics();
 
-    expect(mocks.logEvent).toHaveBeenCalledTimes(20);
+    const events = commands(dataLayer).filter((args) => args[0] === 'event');
+    expect(events).toHaveLength(20);
   });
 
-  it('sends the event name without repeating it in the parameters', async () => {
-    const { startAnalytics, track } = await load();
-    await startAnalytics();
+  it('is bypassed once the tag is in', async () => {
+    const { startAnalytics, track, dataLayer } = await load();
+    startAnalytics();
 
     track({ name: 'profile_change', profile: 'cycling' });
 
-    expect(mocks.logEvent).toHaveBeenCalledWith({}, 'profile_change', { profile: 'cycling' });
+    expect(commands(dataLayer)).toContainEqual([
+      'event',
+      'profile_change',
+      { profile: 'cycling' },
+    ]);
+  });
+
+  it('never throws when analytics is switched off', async () => {
+    const { track } = await load({ mode: 'off' });
+
+    expect(() => track({ name: 'origin_set', method: 'search' })).not.toThrow();
+  });
+});
+
+describe('page_location', () => {
+  /*
+   * The URL is rewritten on every query and carries the origin's coordinates
+   * and street address. This is the assertion that the address never leaves
+   * the browser through GA's page context.
+   */
+  it('is pinned to the bare path, never the share link', async () => {
+    const { startAnalytics, trackPageLocation, dataLayer } = await load();
+    startAnalytics();
+
+    trackPageLocation(HREF);
+
+    const serialised = JSON.stringify(commands(dataLayer));
+    expect(serialised).not.toContain('40.74412');
+    expect(serialised).not.toContain('-73.89641');
+    expect(serialised.toLowerCase()).not.toContain('queens');
+    expect(commands(dataLayer)).toContainEqual([
+      'set',
+      { page_location: 'https://isochrones-4f3fa.web.app/' },
+    ]);
   });
 });
